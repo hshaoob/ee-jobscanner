@@ -31,3 +31,22 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet || { git commit -qm "scan state"; git pull -q --rebase && git push -q; }
+  next:
+    # GitHub's cron is unreliable on this repo, so each run starts the next one itself.
+    # The schedule above stays as a backup that restarts this chain if it ever breaks.
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      actions: write       # to start the next run
+    steps:
+      - name: Wait for the next :17, then start the next scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          now=$(date +%s); next=$(( now/3600*3600 + 17*60 )); [ $next -le $now ] && next=$((next+3600))
+          sleep $((next-now))
+          busy=$(gh run list -R "$GITHUB_REPOSITORY" -w scan.yml --json databaseId,status \
+            -q "[.[] | select(.status != \"completed\" and .databaseId != $GITHUB_RUN_ID)] | length")
+          if [ "$busy" = 0 ]; then gh workflow run scan.yml -R "$GITHUB_REPOSITORY" --ref main; else echo "a scan is already queued"; fi
