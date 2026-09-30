@@ -814,7 +814,11 @@ def main(dry=False):
     if seen: first_seen |= {u: now for u in fresh_urls if u not in queue}  # appeared since the last scan of a watched board
     print(f"{len(boards)} boards, {len(jobs)} matches, {len(new)} new or queued", flush=True)
     if new:  # send first: a failed send leaves everything queued for the next run
-        handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, first_seen=first_seen)
+        try: handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, first_seen=first_seen)
+        except Exception as e:  # record why (never the password itself) so a failed send is diagnosable from the repo
+            got = f"FROM={'set' if FROM else 'MISSING'} TO={'set' if TO else 'MISSING'} PASS={len(os.environ.get('JOBSCAN_PASS', ''))} chars"
+            (HERE / "last_run.txt").write_text(f"{now:%Y-%m-%dT%H:%M}Z EMAIL FAILED: {type(e).__name__}: {str(e)[:300]} | {got}\n")
+            raise
         SEEN.write_text(json.dumps(seen | {u: now.isoformat(timespec="minutes") for u in handled}, indent=0))
         queue = {j[0]: queue.get(j[0], now.isoformat(timespec="minutes")) for j in new if j[0] not in handled}
     QUEUE.write_text(json.dumps(queue, indent=0))
