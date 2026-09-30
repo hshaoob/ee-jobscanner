@@ -620,7 +620,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
     LOGOS.write_text(json.dumps(cache, indent=0, sort_keys=True))
 
     INK, MUTED, FAINT, LINE = "#111827", "#6b7280", "#9ca3af", "#e5e7eb"
-    INDIGO, EMERALD, AMBER = "#454a8c", "#1f7a5c", "#b07a2a"  # muted: easy on the eyes  # brand / action + fresh / attention (Seattle, recent)
+    INDIGO, EMERALD, AMBER = "#1f5f8b", "#1f7a5c", "#b07a2a"  # steel blue (pay, keywords) / action + fresh / attention (Seattle, recent)
     FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
 
     def card(j):
@@ -645,7 +645,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
                                     f'border-radius:999px;white-space:nowrap">SEATTLE AREA</span>')
         img = (f'<img src="{esc(logos[company])}" width="36" height="36" alt="" style="display:block;border-radius:8px;'
                f'border:1px solid {LINE};background:#fff">' if logos.get(company) else
-               f'<div style="width:36px;height:36px;border-radius:8px;background:#eceef7;color:{INDIGO};'
+               f'<div style="width:36px;height:36px;border-radius:8px;background:#d9e8f3;color:{INDIGO};'
                f'font:600 14px/36px {FONT};text-align:center">{esc(company[:1].upper())}</div>')
         idline = (f"ID {job_id(u)} · " if job_id(u) else "") + ("Simplify" if "via Simplify" in c else source(u))
         return f"""<tr><td style="padding:18px 0;border-top:1px solid {LINE}">
@@ -657,7 +657,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
    <div style="font:11px/1.6 Menlo,Consolas,monospace;color:{FAINT};padding-top:2px">{esc(idline)}</div></td>
  <td width="130" valign="top" align="right" style="padding-left:12px">
    <div style="{age_style};white-space:nowrap"><span style="color:{dot}">&#9679;</span>&nbsp;{esc(age)}</div>
-   {f'<div style="padding-top:4px"><span style="display:inline-block;background:#eceef7;color:{INDIGO};font:800 14px/1 {FONT};padding:5px 9px;border-radius:6px;white-space:nowrap">{esc(pay)}</span></div>' if pay else ""}
+   {f'<div style="padding-top:4px"><span style="display:inline-block;background:#d9e8f3;color:{INDIGO};font:800 14px/1 {FONT};padding:5px 9px;border-radius:6px;white-space:nowrap">{esc(pay)}</span></div>' if pay else ""}
    <a href="{esc(u)}" style="display:inline-block;margin-top:10px;background:{EMERALD};color:#ffffff;font:600 13px/1 {FONT};
       text-decoration:none;padding:10px 18px;border-radius:8px;white-space:nowrap">Apply</a></td></tr></table></td></tr>"""
 
