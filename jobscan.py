@@ -264,7 +264,9 @@ def s_phenom(base):
                 "all_fields": [], "size": 50, "clearAll": False, "jdsource": "facets", "isSliderEnable": False,
                 "pageId": "page1", "siteType": "external", "keywords": q, "global": True, "selected_fields": {},
                 "locationData": {}})["refineSearch"]["data"]["jobs"]
-            out += [(f"https://{base}/job/{j['jobId']}", host, j["title"],
+            # Phenom's own job pages can show "no longer available" for live roles (RTX); prefer the real Workday posting
+            out += [((j.get("applyUrl") or "").removesuffix("/apply") if "myworkday" in (j.get("applyUrl") or "")
+                     else f"https://{base}/job/{j['jobId']}", host, j["title"],
                      j.get("cityStateCountry") or j.get("location", "")) for j in jobs]
             if len(jobs) < 50: break
     return out
@@ -488,6 +490,23 @@ def details(url):
         return None, None, None
 
 
+SOURCES = {"myworkday": "Workday", "greenhouse": "Greenhouse", "lever.co": "Lever", "ashbyhq": "Ashby", "smartrecruiters": "SmartRecruiters",
+           "oraclecloud": "Oracle", "icims": "iCIMS", "taleo": "Taleo", "eightfold": "Eightfold", "workable": "Workable",
+           "bamboohr": "BambooHR", "rippling": "Rippling"}
+
+
+def job_id(u):
+    """The company's own requisition/job number, pulled from the link — search it on their careers site to confirm."""
+    m = re.search(r"_((?:JR|REQ|R)?-?\d{4,}[\w-]*?)(?:/apply)?$|[?&](?:job|gh_jid|jobId)=(\d+)|/details/(\d+)|/jobs?/(\d{4,})|"
+                  r"/job/(\d{4,})|/j/([0-9A-F]{8,})|/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})|/(\d{6,})/?$", u)
+    return next((g for g in m.groups() if g), None) if m else None
+
+
+def source(u):
+    host = urllib.parse.urlparse(u).netloc
+    return next((v for k, v in SOURCES.items() if k in host), host.removeprefix("www."))
+
+
 def pretty(c):
     if c.islower() and " " in c: return c.title()  # "trane technologies" -> "Trane Technologies"
     c = re.sub(r"^(?:careers?|jobs|corningjobs)[.-]|\.(?:com|org|net|io|ai)(?:/.*)?$", "", c)
@@ -514,7 +533,10 @@ def email(jobs, seen_at, priority_names, send=True):
         company = (org if org and len(org) < 40 else None) or c
         loc = loc if len(loc) < 90 else loc[:87] + "…"
         td = 'style="padding:10px 8px;border-bottom:1px solid #e3e7e5;vertical-align:top;font-size:14px"'
-        return (f'<tr><td {td}>{esc(when(j))}</td><td {td}><b>{esc(company)}</b></td><td {td}>{esc(t)}</td>'
+        proof = f"Job ID {job_id(u)} · " if job_id(u) else ""
+        proof += f"{'Simplify listing' if 'via Simplify' in c else source(u)} · seen live {seen_at.astimezone(PACIFIC):%b %-d, %-I:%M %p}"
+        return (f'<tr><td {td}>{esc(when(j))}</td><td {td}><b>{esc(company)}</b></td>'
+                f'<td {td}>{esc(t)}<div style="font-size:12px;color:#5d6a65;margin-top:3px">{esc(proof)}</div></td>'
                 f'<td {td}>{esc(loc)}</td><td {td}>{esc(pay or "Not listed")}</td>'
                 f'<td {td}><a href="{esc(u)}" style="display:inline-block;background:#1f5a43;color:#fff;text-decoration:none;'
                 f'padding:7px 14px;border-radius:5px;font-weight:600;white-space:nowrap">Apply</a></td></tr>')
@@ -594,6 +616,10 @@ if __name__ == "__main__":
         assert not match("Applied Research Intern, NLP - Fall 2026")
         assert PAY.search("The hourly rate for our interns is 20 USD - 71 USD.")[0] == "20 USD - 71 USD"
         assert PAY.search("pay range $94000 - $125000 plus")[0] == "$94000 - $125000" and not PAY.search("since 2019 - 2026")
+        assert job_id("https://nvidia.wd5.myworkdayjobs.com/X/job/US-CA/Hardware-Intern_JR2024692") == "JR2024692"
+        assert job_id("https://job-boards.greenhouse.io/spacex/jobs/8616338002") == "8616338002"
+        assert job_id("https://textron.taleo.net/careersection/textron/jobdetail.ftl?job=342717") == "342717"
+        assert source("https://careers-gdms.icims.com/jobs/75140/x/job") == "iCIMS" and source("https://careers.amd.com/jobs/1") == "careers.amd.com"
         assert tier("Redmond, WA") == 0 and tier("Austin, TX") == 1 and tier("Tucson, AZ") == 2
         assert detect("https://jobs.eu.lever.co/quantinuum/abc") == ("lever", "quantinuum", "api.eu.lever.co")
         assert detect("https://ats.rippling.com/rev-robotics/jobs/1") == ("rippling", "rev-robotics")
