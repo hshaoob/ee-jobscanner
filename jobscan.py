@@ -610,7 +610,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
                ("Recent", "Posted in the last 2 weeks, or undated", [j for j in ranked if (a := age_days(j)) is None or 3 < a <= 14]),
                ("Older, strong fit", "Open a while. Pair your application with a recruiter message",
                 [j for j in ranked if (a := age_days(j)) is not None and a > 14 and strong(j)])]
-    shown, cap = [], 60  # ponytail: ~60 cards keeps the email under Gmail's ~100KB clip; only a first run needs more
+    shown, cap = [], 30  # ponytail: ~30 cards (~2.8KB each) keeps the email under Gmail's ~100KB clip; only a first run needs more
     for i, (t, d, js) in enumerate(buckets):
         buckets[i] = (t, d, js[:max(0, cap - len(shown))]); shown += buckets[i][2]
     if not shown: return print("nothing worth emailing (only older, weaker-fit roles)")
@@ -637,7 +637,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
         age = ago(p, seen_at) if p else "Date not listed"
         age_style = f"font:700 12px/1.6 {FONT};color:{EMERALD}" if a is not None and a <= 3 else f"font:500 12px/1.6 {FONT};color:{MUTED}"
         # highlight the EE terms that made this role match (RF, PCB, power systems, FPGA, ...)
-        title = "".join(f'<span style="color:{INDIGO}">{esc(x)}</span>' if i % 2 else esc(x)
+        title = "".join(f'<span style="background:#f5ecd2;padding:0 3px;border-radius:3px">{esc(x)}</span>' if i % 2 else esc(x)
                         for i, x in enumerate(re.split(f"((?:{EE.pattern})\\w*)", t, flags=re.I)) if x) if EE.search(t) else esc(t)
         place = f'<b style="color:{INK}">{esc(loc)}</b>' if loc and tier(loc) <= 1 else esc(loc or "Location not listed")
         meta = f'<span style="color:{INK}">{esc(company)}</span> &nbsp;&middot;&nbsp; {place}'
