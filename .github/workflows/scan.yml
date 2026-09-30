@@ -1,24 +1,35 @@
 name: scan
+# Every hour: scan from :00 (~15 min), verify the postings, email the alert at :20, then idle until the next :00.
+# GitHub's cron is unreliable on this repo, so each run starts the next one itself at :00 (the "next" job).
 on:
   schedule:
-    - cron: "17 * * * *"     # backup only: restarts the chain below if it ever breaks
+    - cron: "5 * * * *"      # backup only: restarts the chain if it ever breaks
   workflow_dispatch:
 concurrency:
   group: scan              # never two scans at once; the next one waits
   cancel-in-progress: false
 permissions:
   contents: write          # to save seen.json etc. back to the repo
+  actions: write           # to start the next run, or cancel a duplicate
+env:
+  GH_TOKEN: ${{ github.token }}
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 75      # ~12 min scan, then the alert waits for the top of the hour
+    timeout-minutes: 45
     steps:
+      - name: Step aside if the chain is already running
+        if: github.triggering_actor != 'github-actions[bot]'   # the backup schedule, or a manual click
+        run: |
+          alive=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/scan.yml/runs?per_page=5" -q "[.workflow_runs[] |
+            select(.id != $GITHUB_RUN_ID and .triggering_actor.login == \"github-actions[bot]\" and .status != \"completed\")] | length")
+          if [ "$alive" != 0 ]; then echo "chain is running; not starting a second one"; gh run cancel "$GITHUB_RUN_ID"; sleep 60; fi
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: python jobscan.py test
-      - run: python jobscan.py
+      - run: python jobscan.py   # scans, verifies postings, then holds the email until :20
         env:
           JOBSCAN_TO: ${{ secrets.JOBSCAN_TO }}
           JOBSCAN_FROM: ${{ secrets.JOBSCAN_FROM }}
@@ -32,19 +43,12 @@ jobs:
           git add -A
           git diff --cached --quiet || { git commit -qm "scan state"; git pull -q --rebase && git push -q; }
   next:
-    # GitHub's cron is unreliable on this repo, so each run starts the next one itself,
-    # right after its alert goes out on the hour. That scan then alerts on the following hour.
     needs: scan
-    if: always()
+    if: always() && needs.scan.result != 'cancelled'   # a duplicate that stepped aside doesn't chain
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write       # to start the next run
+    timeout-minutes: 70
     steps:
-      - name: Start the next scan
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Wait for the next :00, then start the next scan
         run: |
-          busy=$(gh run list -R "$GITHUB_REPOSITORY" -w scan.yml --json databaseId,status \
-            -q "[.[] | select(.status != \"completed\" and .databaseId != $GITHUB_RUN_ID)] | length")
-          if [ "$busy" = 0 ]; then gh workflow run scan.yml -R "$GITHUB_REPOSITORY" --ref main; else echo "a scan is already queued"; fi
+          sleep $(( 3600 - $(date +%s) % 3600 ))
+          gh workflow run scan.yml -R "$GITHUB_REPOSITORY" --ref main

@@ -454,8 +454,13 @@ PAY = re.compile(rf"(?:\$|USD ?){NUM}(?: ?USD)?[kK]? ?(?:-|–|—|to) ?(?:\$|US
                  rf"{NUM} ?USD ?(?:-|–|to) ?{NUM} ?USD(?: ?(?:/|per) ?(?:hour|hr|year|yr))?|\$\d{{2,3}}(?:\.\d{{2}})? ?(?:/|per) ?(?:hour|hr)", re.I)
 
 
+CLOSED = re.compile(r"no longer (?:accepting applications|available|open|active|posted)|(?:position|job|role|requisition) (?:has been|is) "
+                    r"(?:filled|closed|expired)|job (?:you are looking for|you're looking for) (?:is|was|has)", re.I)
+
+
 def details(url):
-    """-> (posted datetime|None, pay str|None, company str|None, description text) from the job's own page/API. Best effort."""
+    """-> (posted datetime|None, pay str|None, company str|None, description text) from the job's own page/API. Best effort.
+    Description None means the posting is gone (404/410, past its end date, or says it is closed)."""
     try:
         if m := re.search(r"greenhouse\.io/(?:embed/job_app\?for=)?([\w-]+)/jobs/(\d+)", url):
             d = fetch(f"https://boards-api.greenhouse.io/v1/boards/{m[1]}/jobs/{m[2]}?pay_transparency=true", timeout=15, tries=1)
@@ -480,6 +485,7 @@ def details(url):
             if not d: continue
             if d.get("datePosted"):
                 posted = datetime.datetime.fromisoformat(d["datePosted"].replace("Z", "+00:00").replace("+0000", "+00:00"))
+            if (vt := d.get("validThrough")) and vt[:10] < f"{datetime.date.today()}": return None, None, None, None
             org = (d.get("hiringOrganization") or {}).get("name")
             desc = html.unescape(re.sub(r"<[^>]+>", " ", html.unescape(d.get("description") or "")))
             v = ((d.get("baseSalary") or {}).get("value") or {})
@@ -487,7 +493,10 @@ def details(url):
                 pay = f"${float(v['minValue']):,.2f} – ${float(v.get('maxValue') or v['minValue']):,.2f}".replace(".00", "") + \
                       (f" / {v['unitText'].lower()}" if v.get("unitText") else "")
         text = html.unescape(re.sub(r"<script.*?</script>|<style.*?</style>|<[^>]+>", " ", page, flags=re.S))
+        if not desc and CLOSED.search(text): return None, None, None, None
         return posted, pay or (PAY.search(text) or [None])[0], org, desc or text
+    except urllib.error.HTTPError as e:
+        return (None, None, None, None if e.code in (404, 410) else "")
     except Exception:
         return None, None, None, ""
 
@@ -671,7 +680,8 @@ def email(jobs, seen_at, priority_names, send=True, first_seen=None):
         org = info.get(j[0], (None, None, None))[2]
         return re.sub(r",? (?:Inc\.?|LLC|Corp\.?|Corporation)$", "", (org if org and len(org) < 40 else None) or j[1].split(" (via")[0])
 
-    fits = {j[0]: fit(j[2], info.get(j[0], (None, None, None, ""))[3]) for j in ranked}
+    ranked = [j for j in ranked if j[0] not in info or info[j[0]][3] is not None]  # expired postings count as handled, never sent
+    fits = {j[0]: fit(j[2], info.get(j[0], (None, None, None, ""))[3] or "") for j in ranked}
     # best fit first (Seattle still leads); at most 3 roles per company so applications look targeted, not scattershot
     ranked.sort(key=lambda j: (tier(j[3]) > 0, -fits[j[0]][0]))
     per_co, capped = collections.Counter(), []
@@ -785,7 +795,8 @@ def email(jobs, seen_at, priority_names, send=True, first_seen=None):
 
 
 def deliver(subject, body):
-    if os.environ.get("GITHUB_ACTIONS"): time.sleep(3600 - time.time() % 3600)  # alerts land on the hour; the scan ran earlier in it
+    wait = 20 * 60 - time.time() % 3600  # scan from :00, verify postings until ~:15, alert at :20 (or right away if running late)
+    if os.environ.get("GITHUB_ACTIONS") and wait > 0: time.sleep(wait)
     msg = MIMEText(body, "html")
     msg["Subject"], msg["From"], msg["To"] = subject, f"EE Internship Alerts <{FROM}>", TO
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
