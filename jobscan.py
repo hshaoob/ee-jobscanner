@@ -518,24 +518,65 @@ ATS_HOSTS = ("myworkday", "greenhouse", "lever.co", "ashbyhq", "smartrecruiters"
              "eightfold", "workable", "bamboohr", "rippling", "simplify", "applytojob", "paylocity", "jobvite", "avature")
 
 
+def _png_size(b):
+    return int.from_bytes(b[16:20], "big") if b[:4] == b"\x89PNG" else 0
+
+
+def _get(u, timeout=10):
+    with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": UA}), timeout=timeout) as r:
+        return r.url, r.read()
+
+
+def site_icon(d):
+    """Sharp icon straight from a company's own site: apple-touch-icon, else the biggest PNG icon its homepage declares."""
+    for touch in (f"https://www.{d}/apple-touch-icon.png", f"https://{d}/apple-touch-icon.png"):
+        try:
+            final, b = _get(touch)
+            if _png_size(b) >= 57: return final
+        except Exception: pass
+    try:
+        base, page = _get(f"https://www.{d}/")
+        links = re.findall(r"<link[^>]+rel=[\"'][^\"']*icon[^\"']*[\"'][^>]*>", page.decode("utf-8", "ignore"), re.I)
+        hrefs = [urllib.parse.urljoin(base, html.unescape(h)) for l in links if (h := (re.search(r'href=["\']([^"\']+\.png[^"\']*)', l) or [0, 0])[1])]
+        for h in sorted(hrefs, key=lambda h: -int((re.search(r"(\d{2,3})x\d{2,3}", h) or [0, 0])[1])):
+            if _png_size(_get(h)[1]) >= 32: return h
+    except Exception: pass
+    return None
+
+
 def logo(company, url, cache):
-    """Company favicon via Google's service, found by trying likely domains. Wrong-logo risk kept low: no loose guesses."""
-    if company in cache: return cache[company]
+    """Company logo URL. Finds the company's web domain (career-site host, name.com, ATS tenant, Clearbit's company search),
+    then takes the sharpest icon: Google's favicon if >=48px, else the site's apple-touch-icon, else any real favicon."""
+    if cache.get(company): return cache[company]
     host = urllib.parse.urlparse(url).netloc.lower()
     parts = [p for p in urllib.parse.urlparse(url).path.split("/") if p]
     tenant = (host.split(".")[0].removeprefix("careers-") if any(a in host for a in ("myworkdayjobs", "icims", "eightfold"))
               else parts[0] if any(a in host for a in ("greenhouse", "lever.co", "ashbyhq")) and parts else "")
+    squash = lambda x: re.sub(r"[^a-z0-9]", "", x.lower())
     cands = [] if any(a in host for a in ATS_HOSTS) else [".".join(host.split(".")[-2:])]
-    cands += [re.sub(r"[^a-z0-9]", "", company.lower()) + ".com", re.sub(r"[^a-z0-9]", "", tenant.lower()) + ".com"]
-    cache[company] = ""
-    for d in dict.fromkeys(c for c in cands if len(c) > 5):
-        u = f"https://www.google.com/s2/favicons?domain={d}&sz=128"
-        try:
-            with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": UA}), timeout=10) as r:
-                png = r.read()
-            if png[:4] == b"\x89PNG" and int.from_bytes(png[16:20], "big") >= 32:  # real logo, not the 16px default globe
-                cache[company] = u; break
+    trusted = set(cands)  # domains we know belong to this company (vs. name.com guesses)
+    acronym = (re.search(r"\(([A-Za-z&]{2,8})\)", company) or [None, ""])[1].replace("&", "")
+    clean = re.sub(r"\(.*?\)|\b(?:Group|Company|Companies|Family of|Inc|LLC|USA|US|Solutions|Corporation|Corp)\b\.?", "", company).strip(" ,-")
+    for q in dict.fromkeys(filter(None, (company, clean if " " in clean else None))):  # a lone generic word matches strangers
+        try:  # Clearbit's company search still returns domains (its logo service is gone)
+            hits = json.loads(_get("https://autocomplete.clearbit.com/v1/companies/suggest?query=" + urllib.parse.quote(q))[1])
+            exact = [h["domain"] for h in hits[:3] if squash(h["name"]) in (squash(company), squash(clean))]  # exact name only
+            cands += exact; trusted |= set(exact)
         except Exception: pass
+    cands += [squash(clean) + ".com", squash(company) + ".com", squash(tenant) + ".com", acronym.lower() + ".com"]
+
+    cache[company] = ""
+    exact = {squash(company) + ".com", squash(clean) + ".com"} | trusted  # domains safe to keep searching after a blurry hit
+    for d in dict.fromkeys(c for c in cands if len(c) > 5):  # most-trusted first; "ti.com" is a real domain
+        if cache[company] and d not in exact: break  # have a small logo already; only name-exact domains may improve it
+        g = f"https://www.google.com/s2/favicons?domain={d}&sz=128"
+        try: size = _png_size(_get(g)[1])
+        except Exception:  # Google has no icon for it: for a domain we trust, read the icon off the site itself
+            if d in trusted and (icon := site_icon(d)): cache[company] = icon; break
+            continue
+        if size >= 48: cache[company] = g; break
+        if icon := site_icon(d): cache[company] = icon; break
+        cache[company] = cache[company] or g  # a small real favicon beats no logo; keep looking for a sharper one
     return cache[company]
 
 
@@ -578,7 +619,8 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
     with ThreadPoolExecutor(16) as ex: logos = dict(zip(firsts, ex.map(lambda kv: logo(kv[0], kv[1][0], cache), firsts.items())))
     LOGOS.write_text(json.dumps(cache, indent=0, sort_keys=True))
 
-    INK, MUTED, FAINT, LINE, BRAND = "#111827", "#6b7280", "#9ca3af", "#e5e7eb", "#0f766e"
+    INK, MUTED, FAINT, LINE = "#111827", "#6b7280", "#9ca3af", "#e5e7eb"
+    INDIGO, EMERALD, AMBER = "#4338ca", "#059669", "#d97706"  # brand / action + fresh / attention (Seattle, recent)
     FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
 
     def card(j):
@@ -591,12 +633,14 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
         loc = re.sub(r"^US-([A-Z]{2})-(.+)$", r"\2, \1", loc)  # "US-VA-Manassas" -> "Manassas, VA"
         if loc[:1].islower(): loc = re.sub(r"\b[a-z]", lambda m: m[0].upper(), loc)
         loc = loc if len(loc) < 60 else loc[:57] + "…"
-        dot = "#16a34a" if a is not None and a <= 3 else "#d97706" if a is None or a <= 14 else "#dc2626"
+        dot = EMERALD if a is not None and a <= 3 else AMBER if a is None or a <= 14 else FAINT
         age = ago(p, seen_at) if p else "Date not listed"
         meta = f'<span style="color:{INK}">{esc(company)}</span> &nbsp;&middot;&nbsp; {esc(loc or "Location not listed")}'
+        if tier(loc) == 0: meta += (f' &nbsp;<span style="background:#fef3c7;color:#92400e;font:600 11px/1 {FONT};padding:3px 7px;'
+                                    f'border-radius:999px;white-space:nowrap">SEATTLE AREA</span>')
         img = (f'<img src="{esc(logos[company])}" width="36" height="36" alt="" style="display:block;border-radius:8px;'
                f'border:1px solid {LINE};background:#fff">' if logos.get(company) else
-               f'<div style="width:36px;height:36px;border-radius:8px;background:#f3f4f6;color:{MUTED};'
+               f'<div style="width:36px;height:36px;border-radius:8px;background:#e0e7ff;color:{INDIGO};'
                f'font:600 14px/36px {FONT};text-align:center">{esc(company[:1].upper())}</div>')
         idline = (f"ID {job_id(u)} · " if job_id(u) else "") + ("Simplify" if "via Simplify" in c else source(u))
         return f"""<tr><td style="padding:18px 0;border-top:1px solid {LINE}">
@@ -608,28 +652,29 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
    <div style="font:11px/1.6 Menlo,Consolas,monospace;color:{FAINT};padding-top:2px">{esc(idline)}</div></td>
  <td width="130" valign="top" align="right" style="padding-left:12px">
    <div style="font:500 12px/1.6 {FONT};color:{MUTED};white-space:nowrap"><span style="color:{dot}">&#9679;</span>&nbsp;{esc(age)}</div>
-   {f'<div style="font:600 13px/1.5 {FONT};color:{INK};white-space:nowrap">{esc(pay)}</div>' if pay else ""}
-   <a href="{esc(u)}" style="display:inline-block;margin-top:10px;background:{BRAND};color:#ffffff;font:600 13px/1 {FONT};
+   {f'<div style="font:700 13px/1.5 {FONT};color:{INDIGO};white-space:nowrap">{esc(pay)}</div>' if pay else ""}
+   <a href="{esc(u)}" style="display:inline-block;margin-top:10px;background:{EMERALD};color:#ffffff;font:600 13px/1 {FONT};
       text-decoration:none;padding:10px 18px;border-radius:8px;white-space:nowrap">Apply</a></td></tr></table></td></tr>"""
 
+    label = {"Fresh": EMERALD, "Recent": AMBER}
     sections = "".join(
-        f"""<tr><td style="padding:30px 0 10px"><span style="font:700 12px/1 {FONT};letter-spacing:.08em;text-transform:uppercase;color:{INK}">{t}</span>
+        f"""<tr><td style="padding:30px 0 10px"><span style="font:800 12px/1 {FONT};letter-spacing:.08em;text-transform:uppercase;color:{label.get(t, INDIGO)}">{t}</span>
 <span style="font:12px/1 {FONT};color:{FAINT}">&nbsp; {len(js)} &nbsp;&middot;&nbsp; {d}</span></td></tr>{"".join(map(card, js))}"""
         for t, d, js in buckets if js)
     fresh_n, sea_n = len(buckets[0][2]), sum(tier(j[3]) == 0 for j in shown)
     headline = f"{fresh_n} fresh internship{'s' * (fresh_n != 1)}" if fresh_n else f"{len(shown)} new internship{'s' * (len(shown) != 1)}"
-    summary = f"{len(shown)} role{'s' * (len(shown) != 1)} in this alert" + (f" &nbsp;&middot;&nbsp; {sea_n} in the Seattle area" if sea_n else "")
+    summary = f"{len(shown)} role{'s' * (len(shown) != 1)} in this alert" + (f' &nbsp;&middot;&nbsp; <b style="color:#fcd34d">{sea_n} in the Seattle area</b>' if sea_n else "")
     hidden = len(jobs) - len(shown)
     body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;background:#f9fafb">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb"><tr><td align="center" style="padding:32px 16px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid {LINE};border-radius:14px">
-<tr><td style="padding:32px 32px 8px">
-  <div style="font:700 12px/1 {FONT};letter-spacing:.1em;text-transform:uppercase;color:{BRAND}">EE Internship Alerts</div>
-  <div style="font:700 24px/1.25 {FONT};color:{INK};padding-top:10px">{headline}</div>
-  <div style="font:14px/1.5 {FONT};color:{MUTED};padding-top:6px">{summary}</div>
-  <div style="font:13px/1.5 {FONT};color:{FAINT}">{seen_at.astimezone(PACIFIC):%A, %B %-d · %-I:%M %p} PT</div></td></tr>
-<tr><td style="padding:0 32px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{sections}</table></td></tr>
+<body style="margin:0;background:#eef2ff">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2ff"><tr><td align="center" style="padding:32px 16px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden">
+<tr><td bgcolor="#3730a3" style="padding:30px 32px 26px;background:#3730a3;background-image:linear-gradient(135deg,#312e81,#4f46e5)">
+  <div style="font:800 12px/1 {FONT};letter-spacing:.12em;text-transform:uppercase;color:#6ee7b7">EE Internship Alerts</div>
+  <div style="font:800 26px/1.25 {FONT};color:#ffffff;padding-top:10px">{headline}</div>
+  <div style="font:14px/1.5 {FONT};color:#c7d2fe;padding-top:6px">{summary}</div>
+  <div style="font:13px/1.5 {FONT};color:#a5b4fc">{seen_at.astimezone(PACIFIC):%A, %B %-d · %-I:%M %p} PT</div></td></tr>
+<tr><td style="padding:4px 32px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{sections}</table></td></tr>
 <tr><td style="padding:20px 32px 30px;border-top:1px solid {LINE};font:12px/1.6 {FONT};color:{FAINT}">
   Every role was live on the company's site when this was sent. Search the ID on their careers page to confirm it.
   {f"{hidden} older or weaker-fit roles were left out." if hidden > 0 else ""}</td></tr>
@@ -705,6 +750,8 @@ if __name__ == "__main__":
         assert ago(n - datetime.timedelta(minutes=20), n) == "Just posted" and ago(n - datetime.timedelta(hours=5), n) == "5h ago"
         assert ago(n - datetime.timedelta(days=40), n) == "5 wks ago"
         assert re.sub(r"(\d[\d,.]*) ?USD", r"$\1", "42,000 USD - 88,000 USD").replace(" - ", " – ") == "$42,000 – $88,000"
+        assert "ti.com" in logo("Texas Instruments", "https://edbz.fa.us2.oraclecloud.com/x", {})
+        assert "lockheedmartin.com" in logo("Lockheed Martin", "https://lockheedmartin.eightfold.ai/careers/job/1", {})
         assert tier("Redmond, WA") == 0 and tier("Austin, TX") == 1 and tier("Tucson, AZ") == 2
         assert detect("https://jobs.eu.lever.co/quantinuum/abc") == ("lever", "quantinuum", "api.eu.lever.co")
         assert detect("https://ats.rippling.com/rev-robotics/jobs/1") == ("rippling", "rev-robotics")
