@@ -620,7 +620,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
     LOGOS.write_text(json.dumps(cache, indent=0, sort_keys=True))
 
     INK, MUTED, FAINT, LINE = "#111827", "#6b7280", "#9ca3af", "#e5e7eb"
-    INDIGO, EMERALD, AMBER = "#4338ca", "#059669", "#d97706"  # brand / action + fresh / attention (Seattle, recent)
+    INDIGO, EMERALD, AMBER = "#454a8c", "#1f7a5c", "#b07a2a"  # muted: easy on the eyes  # brand / action + fresh / attention (Seattle, recent)
     FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
 
     def card(j):
@@ -636,11 +636,11 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
         dot = EMERALD if a is not None and a <= 3 else AMBER if a is None or a <= 14 else FAINT
         age = ago(p, seen_at) if p else "Date not listed"
         meta = f'<span style="color:{INK}">{esc(company)}</span> &nbsp;&middot;&nbsp; {esc(loc or "Location not listed")}'
-        if tier(loc) == 0: meta += (f' &nbsp;<span style="background:#fef3c7;color:#92400e;font:600 11px/1 {FONT};padding:3px 7px;'
+        if tier(loc) == 0: meta += (f' &nbsp;<span style="background:#f7efdf;color:#8a5a14;font:600 11px/1 {FONT};padding:3px 7px;'
                                     f'border-radius:999px;white-space:nowrap">SEATTLE AREA</span>')
         img = (f'<img src="{esc(logos[company])}" width="36" height="36" alt="" style="display:block;border-radius:8px;'
                f'border:1px solid {LINE};background:#fff">' if logos.get(company) else
-               f'<div style="width:36px;height:36px;border-radius:8px;background:#e0e7ff;color:{INDIGO};'
+               f'<div style="width:36px;height:36px;border-radius:8px;background:#eceef7;color:{INDIGO};'
                f'font:600 14px/36px {FONT};text-align:center">{esc(company[:1].upper())}</div>')
         idline = (f"ID {job_id(u)} · " if job_id(u) else "") + ("Simplify" if "via Simplify" in c else source(u))
         return f"""<tr><td style="padding:18px 0;border-top:1px solid {LINE}">
@@ -663,17 +663,17 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
         for t, d, js in buckets if js)
     fresh_n, sea_n = len(buckets[0][2]), sum(tier(j[3]) == 0 for j in shown)
     headline = f"{fresh_n} fresh internship{'s' * (fresh_n != 1)}" if fresh_n else f"{len(shown)} new internship{'s' * (len(shown) != 1)}"
-    summary = f"{len(shown)} role{'s' * (len(shown) != 1)} in this alert" + (f' &nbsp;&middot;&nbsp; <b style="color:#fcd34d">{sea_n} in the Seattle area</b>' if sea_n else "")
+    summary = f"{len(shown)} role{'s' * (len(shown) != 1)} in this alert" + (f' &nbsp;&middot;&nbsp; <b style="color:#ecd6a8">{sea_n} in the Seattle area</b>' if sea_n else "")
     hidden = len(jobs) - len(shown)
     body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;background:#eef2ff">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2ff"><tr><td align="center" style="padding:32px 16px">
+<body style="margin:0;background:#f3f4f7">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f7"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden">
-<tr><td bgcolor="#3730a3" style="padding:30px 32px 26px;background:#3730a3;background-image:linear-gradient(135deg,#312e81,#4f46e5)">
-  <div style="font:800 12px/1 {FONT};letter-spacing:.12em;text-transform:uppercase;color:#6ee7b7">EE Internship Alerts</div>
+<tr><td bgcolor="#34386b" style="padding:30px 32px 26px;background:#34386b;background-image:linear-gradient(135deg,#2c2f5c,#3f4480)">
+  <div style="font:800 12px/1 {FONT};letter-spacing:.12em;text-transform:uppercase;color:#a7d7c5">EE Internship Alerts</div>
   <div style="font:800 26px/1.25 {FONT};color:#ffffff;padding-top:10px">{headline}</div>
-  <div style="font:14px/1.5 {FONT};color:#c7d2fe;padding-top:6px">{summary}</div>
-  <div style="font:13px/1.5 {FONT};color:#a5b4fc">{seen_at.astimezone(PACIFIC):%A, %B %-d · %-I:%M %p} PT</div></td></tr>
+  <div style="font:14px/1.5 {FONT};color:#d3d6ea;padding-top:6px">{summary}</div>
+  <div style="font:13px/1.5 {FONT};color:#aab0d4">{seen_at.astimezone(PACIFIC):%A, %B %-d · %-I:%M %p} PT</div></td></tr>
 <tr><td style="padding:4px 32px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{sections}</table></td></tr>
 <tr><td style="padding:20px 32px 30px;border-top:1px solid {LINE};font:12px/1.6 {FONT};color:{FAINT}">
   Every role was live on the company's site when this was sent. Search the ID on their careers page to confirm it.
