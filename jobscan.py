@@ -689,7 +689,11 @@ def email(jobs, seen_at, priority_names, send=True, first_seen=None):
     for i, (t, d, js) in enumerate(buckets):
         buckets[i] = (t, d, js[:max(0, cap - len(shown))]); shown += buckets[i][2]
     handled = {j[0] for j in jobs} - (wanted - {j[0] for j in shown})  # sent + skipped on purpose; the overflow carries over
-    if not shown: return print("nothing worth emailing (only older, weaker-fit roles)") or handled
+    if not shown:  # still email, so a missing alert always means the scan broke
+        print("no new roles worth sending")
+        if send: deliver("EE Internship Alert: scan finished, no new roles",
+            f"<p>Hourly scan finished {seen_at.astimezone(PACIFIC):%-I:%M %p} PT. No new roles worth sending this hour.</p>")
+        return handled
     waiting = len(wanted) - len(shown)
     cache = json.loads(LOGOS.read_text()) if LOGOS.exists() else {}
     firsts = {display(j): j for j in reversed(shown)}  # one lookup per company (parallel lookups of one company would race)
@@ -776,12 +780,17 @@ def email(jobs, seen_at, priority_names, send=True, first_seen=None):
     subject = f"New EE Internship Alert: {', '.join(top)}" + (f" · {fresh_n} fresh" if fresh_n else "")
     (HERE / "last_email.html").write_text(body)
     if not send: return print("Subject:", subject) or handled
+    deliver(subject, body)
+    return handled
+
+
+def deliver(subject, body):
+    if os.environ.get("GITHUB_ACTIONS"): time.sleep(3600 - time.time() % 3600)  # alerts land on the hour; the scan ran earlier in it
     msg = MIMEText(body, "html")
     msg["Subject"], msg["From"], msg["To"] = subject, f"EE Internship Alerts <{FROM}>", TO
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
         s.login(FROM, secret())
         s.send_message(msg)
-    return handled
 
 
 def main(dry=False):
@@ -813,14 +822,14 @@ def main(dry=False):
     first_seen = {u: datetime.datetime.fromisoformat(t) for u, t in queue.items()}
     if seen: first_seen |= {u: now for u in fresh_urls if u not in queue}  # appeared since the last scan of a watched board
     print(f"{len(boards)} boards, {len(jobs)} matches, {len(new)} new or queued", flush=True)
-    if new:  # send first: a failed send leaves everything queued for the next run
-        try: handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, first_seen=first_seen)
-        except Exception as e:  # record why (never the password itself) so a failed send is diagnosable from the repo
-            got = f"FROM={'set' if FROM else 'MISSING'} TO={'set' if TO else 'MISSING'} PASS={len(os.environ.get('JOBSCAN_PASS', ''))} chars"
-            (HERE / "last_run.txt").write_text(f"{now:%Y-%m-%dT%H:%M}Z EMAIL FAILED: {type(e).__name__}: {str(e)[:300]} | {got}\n")
-            raise
-        SEEN.write_text(json.dumps(seen | {u: now.isoformat(timespec="minutes") for u in handled}, indent=0))
-        queue = {j[0]: queue.get(j[0], now.isoformat(timespec="minutes")) for j in new if j[0] not in handled}
+    # send first (even with nothing new, as the hourly heartbeat): a failed send leaves everything queued for the next run
+    try: handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, first_seen=first_seen)
+    except Exception as e:  # record why (never the password itself) so a failed send is diagnosable from the repo
+        got = f"FROM={'set' if FROM else 'MISSING'} TO={'set' if TO else 'MISSING'} PASS={len(os.environ.get('JOBSCAN_PASS', ''))} chars"
+        (HERE / "last_run.txt").write_text(f"{now:%Y-%m-%dT%H:%M}Z EMAIL FAILED: {type(e).__name__}: {str(e)[:300]} | {got}\n")
+        raise
+    SEEN.write_text(json.dumps(seen | {u: now.isoformat(timespec="minutes") for u in handled}, indent=0))
+    queue = {j[0]: queue.get(j[0], now.isoformat(timespec="minutes")) for j in new if j[0] not in handled}
     QUEUE.write_text(json.dumps(queue, indent=0))
     (HERE / "last_run.txt").write_text(f"{now.isoformat(timespec='minutes')} {len(jobs)} matches, {len(queue)} queued\n")  # keeps the repo active
     if len(failed) > len(priority) // 4 or not jobs:  # make the run fail loudly (GitHub emails you) instead of quietly missing roles

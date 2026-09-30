@@ -1,7 +1,7 @@
 name: scan
 on:
   schedule:
-    - cron: "17 * * * *"     # hourly, off the :00 rush when GitHub drops runs
+    - cron: "17 * * * *"     # backup only: restarts the chain below if it ever breaks
   workflow_dispatch:
 concurrency:
   group: scan              # never two scans at once; the next one waits
@@ -11,7 +11,7 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75      # ~12 min scan, then the alert waits for the top of the hour
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,21 +32,19 @@ jobs:
           git add -A
           git diff --cached --quiet || { git commit -qm "scan state"; git pull -q --rebase && git push -q; }
   next:
-    # GitHub's cron is unreliable on this repo, so each run starts the next one itself.
-    # The schedule above stays as a backup that restarts this chain if it ever breaks.
+    # GitHub's cron is unreliable on this repo, so each run starts the next one itself,
+    # right after its alert goes out on the hour. That scan then alerts on the following hour.
     needs: scan
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 5
     permissions:
       actions: write       # to start the next run
     steps:
-      - name: Wait for the next :17, then start the next scan
+      - name: Start the next scan
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          now=$(date +%s); next=$(( now/3600*3600 + 17*60 )); [ $next -le $now ] && next=$((next+3600))
-          sleep $((next-now))
           busy=$(gh run list -R "$GITHUB_REPOSITORY" -w scan.yml --json databaseId,status \
             -q "[.[] | select(.status != \"completed\" and .databaseId != $GITHUB_RUN_ID)] | length")
           if [ "$busy" = 0 ]; then gh workflow run scan.yml -R "$GITHUB_REPOSITORY" --ref main; else echo "a scan is already queued"; fi
