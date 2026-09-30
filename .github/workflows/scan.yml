@@ -23,6 +23,7 @@ jobs:
           JOBSCAN_TO: ${{ secrets.JOBSCAN_TO }}
           JOBSCAN_FROM: ${{ secrets.JOBSCAN_FROM }}
           JOBSCAN_PASS: ${{ secrets.JOBSCAN_PASS }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # higher GitHub API limit for logo lookups
       - name: Save state
         if: always()       # keep what was learned even if the run failed after emailing
         run: |

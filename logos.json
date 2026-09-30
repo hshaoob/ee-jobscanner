@@ -1,12 +1,14 @@
 {
 "Blue Origin": "https://www.google.com/s2/favicons?domain=blueorigin.com&sz=128",
-"Boeing": "https://www.google.com/s2/favicons?domain=boeing.com&sz=128",
+"Boeing": {
+"h": 59,
+"u": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4f/Boeing_full_logo.svg/250px-Boeing_full_logo.svg.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail",
+"w": 250
+},
 "General Dynamics Mission Systems": "https://www.google.com/s2/favicons?domain=gdmissionsystems.com&sz=128",
 "Lockheed Martin": "https://www.lockheedmartin.com/apple-touch-icon.png",
-"NVIDIA": "https://www.google.com/s2/favicons?domain=nvidia.com&sz=128",
+"NVIDIA": "https://avatars.githubusercontent.com/u/1728152?v=4&s=128",
 "RTX": "https://www.google.com/s2/favicons?domain=rtx.com&sz=128",
-"Rtx": "https://www.google.com/s2/favicons?domain=rtx.com&sz=128",
 "SpaceX": "https://www.google.com/s2/favicons?domain=spacex.com&sz=128",
-"Stryker": "https://www.google.com/s2/favicons?domain=stryker.com&sz=128",
-"Texas Instruments": "https://www.google.com/s2/favicons?domain=ti.com&sz=128"
+"Texas Instruments": "https://avatars.githubusercontent.com/u/24322022?v=4&s=128"
 }

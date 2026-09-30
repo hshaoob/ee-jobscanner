@@ -592,19 +592,54 @@ def logo(company, url, cache):
         except Exception: pass
     cands += [squash(clean) + ".com", squash(company) + ".com", squash(tenant) + ".com", acronym.lower() + ".com"]
 
-    cache[company] = ""
     exact = {squash(company) + ".com", squash(clean) + ".com"} | trusted  # domains safe to keep searching after a blurry hit
+    best = (0, "")  # (pixel size, url): keep the sharpest real logo found
     for d in dict.fromkeys(c for c in cands if len(c) > 5):  # most-trusted first; "ti.com" is a real domain
-        if cache[company] and d not in exact: break  # have a small logo already; only name-exact domains may improve it
+        if best[1] and d not in exact: break  # only name-exact domains may improve a logo we already have
         g = f"https://www.google.com/s2/favicons?domain={d}&sz=128"
-        try: size = _png_size(_get(g)[1])
-        except Exception:  # Google has no icon for it: for a domain we trust, read the icon off the site itself
-            if d in trusted and (icon := site_icon(d)): cache[company] = icon; break
-            continue
-        if size >= 48: cache[company] = g; break
-        if icon := site_icon(d): cache[company] = icon; break
-        cache[company] = cache[company] or g  # a small real favicon beats no logo; keep looking for a sharper one
+        try: best = max(best, (_png_size(_get(g)[1]), g))
+        except Exception:  # Google has no icon for it; only keep going if we know the domain is this company's
+            if d not in trusted: continue
+        if best[0] >= 96: break
+        if gh := github_avatar(d, company): best = (400, gh); break
+        if best[0] < 48 and (icon := site_icon(d)): best = max(best, (100, icon))
+        if best[0] >= 48: break
+    if best[0] < 32 and (w := wikidata_logo(company)): best = (0, w)  # crisp official logo beats a blurry 16px favicon
+    cache[company] = best[1]
     return cache[company]
+
+
+def github_avatar(domain, company):
+    """Square high-res logo from the company's GitHub org, only if the org lists this company's website."""
+    head = {"User-Agent": UA, **({"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"} if os.environ.get("GITHUB_TOKEN") else {})}
+    for org in dict.fromkeys((re.sub(r"[^a-z0-9]", "", company.lower()), domain.split(".")[0])):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/orgs/{org}", headers=head), timeout=10) as r:
+                o = json.load(r)
+            if (urllib.parse.urlparse(o.get("blog") or "").netloc or o.get("blog") or "").removeprefix("www.").rstrip("/").endswith(domain):
+                return o["avatar_url"] + "&s=128"
+        except Exception: pass
+    return None
+
+
+def wikidata_logo(company):
+    """Official logo (often a wide wordmark) from Wikidata/Commons, rendered as PNG. -> {"u", "w", "h"} or None."""
+    head = {"User-Agent": "ee-jobscan/1.0 (personal internship alerts)"}
+    get = lambda u: urllib.request.urlopen(urllib.request.Request(u, headers=head), timeout=15)
+    try:
+        hits = json.load(get("https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json&language=en&type=item&limit=3&search="
+                             + urllib.parse.quote(company)))["search"]
+        for h in hits:
+            if not re.search(r"compan|corporat|manufactur|develop|firm|business|laborator|utility|contractor|provider|maker|agency",
+                             h.get("description", ""), re.I): continue
+            claims = json.load(get(f"https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&props=claims&ids={h['id']}"))
+            logo_file = claims["entities"][h["id"]]["claims"].get("P154", [{}])[0].get("mainsnak", {}).get("datavalue", {}).get("value")
+            if not logo_file: continue
+            with get("https://commons.wikimedia.org/wiki/Special:FilePath/" + urllib.parse.quote(logo_file) + "?width=200") as r:
+                png, final = r.read(), r.url
+            if png[:4] == b"\x89PNG": return {"u": final, "w": _png_size(png), "h": int.from_bytes(png[20:24], "big")}
+    except Exception: pass
+    return None
 
 
 def ago(p, now):
@@ -679,8 +714,12 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
         meta = f'<span style="color:{INK}">{esc(company)}</span> &nbsp;&middot;&nbsp; {place}'
         if tier(loc) == 0: meta += (f' &nbsp;<span style="background:#f7efdf;color:#8a5a14;font:600 11px/1 {FONT};padding:3px 7px;'
                                     f'border-radius:999px;white-space:nowrap">SEATTLE AREA</span>')
-        img = (f'<img src="{esc(logos[company])}" width="36" height="36" alt="" style="display:block;border-radius:8px;'
-               f'border:1px solid {LINE};background:#fff">' if logos.get(company) else
+        lg = logos.get(company)
+        if isinstance(lg, dict):  # official wordmark: fit inside the logo slot without distortion
+            k = min(44 / lg["w"], 36 / lg["h"])
+            img = f'<img src="{esc(lg["u"])}" width="{round(lg["w"] * k)}" height="{round(lg["h"] * k)}" alt="{esc(company)}" style="display:block">'
+        else: img = (f'<img src="{esc(lg)}" width="36" height="36" alt="" style="display:block;border-radius:8px;'
+               f'border:1px solid {LINE};background:#fff">' if lg else
                f'<div style="width:36px;height:36px;border-radius:8px;background:#d9e8f3;color:{INDIGO};'
                f'font:600 14px/36px {FONT};text-align:center">{esc(company[:1].upper())}</div>')
         fit_color = {"Strong fit": EMERALD, "Good fit": INDIGO}.get(fit_label, MUTED)
@@ -796,7 +835,7 @@ if __name__ == "__main__":
         assert ago(n - datetime.timedelta(minutes=20), n) == "Just posted" and ago(n - datetime.timedelta(hours=5), n) == "5h ago"
         assert ago(n - datetime.timedelta(days=40), n) == "5 wks ago"
         assert re.sub(r"(\d[\d,.]*) ?USD", r"$\1", "42,000 USD - 88,000 USD").replace(" - ", " – ") == "$42,000 – $88,000"
-        assert "ti.com" in logo("Texas Instruments", "https://edbz.fa.us2.oraclecloud.com/x", {})
+        assert logo("Texas Instruments", "https://edbz.fa.us2.oraclecloud.com/x", {})
         assert "lockheedmartin.com" in logo("Lockheed Martin", "https://lockheedmartin.eightfold.ai/careers/job/1", {})
         assert re.split(f"((?:{EE.pattern})\\w*)", "Systems Engineering Intern", flags=re.I)[1] == "Systems Engineering"
         assert fit("Avionics Harness Design Intern", "Zuken E3 wire harness, IPC/WHMA-A-620, HIL test bed")[1] == "Strong fit"
