@@ -18,11 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Step aside if the chain is already running
+      - name: Step aside if a scan is already running or queued
         if: github.triggering_actor != 'github-actions[bot]'   # the backup schedule, or a manual click
         run: |
           alive=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/scan.yml/runs?per_page=5" -q "[.workflow_runs[] |
-            select(.id != $GITHUB_RUN_ID and .triggering_actor.login == \"github-actions[bot]\" and .status != \"completed\")] | length")
+            select(.id != $GITHUB_RUN_ID and .status != \"completed\")] | length")
           if [ "$alive" != 0 ]; then echo "chain is running; not starting a second one"; gh run cancel "$GITHUB_RUN_ID"; sleep 60; fi
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
