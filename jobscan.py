@@ -635,7 +635,12 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
         loc = loc if len(loc) < 60 else loc[:57] + "…"
         dot = EMERALD if a is not None and a <= 3 else AMBER if a is None or a <= 14 else FAINT
         age = ago(p, seen_at) if p else "Date not listed"
-        meta = f'<span style="color:{INK}">{esc(company)}</span> &nbsp;&middot;&nbsp; {esc(loc or "Location not listed")}'
+        age_style = f"font:700 12px/1.6 {FONT};color:{EMERALD}" if a is not None and a <= 3 else f"font:500 12px/1.6 {FONT};color:{MUTED}"
+        # highlight the EE terms that made this role match (RF, PCB, power systems, FPGA, ...)
+        title = "".join(f'<span style="color:{INDIGO}">{esc(x)}</span>' if i % 2 else esc(x)
+                        for i, x in enumerate(re.split(f"((?:{EE.pattern})\\w*)", t, flags=re.I)) if x) if EE.search(t) else esc(t)
+        place = f'<b style="color:{INK}">{esc(loc)}</b>' if loc and tier(loc) <= 1 else esc(loc or "Location not listed")
+        meta = f'<span style="color:{INK}">{esc(company)}</span> &nbsp;&middot;&nbsp; {place}'
         if tier(loc) == 0: meta += (f' &nbsp;<span style="background:#f7efdf;color:#8a5a14;font:600 11px/1 {FONT};padding:3px 7px;'
                                     f'border-radius:999px;white-space:nowrap">SEATTLE AREA</span>')
         img = (f'<img src="{esc(logos[company])}" width="36" height="36" alt="" style="display:block;border-radius:8px;'
@@ -647,12 +652,12 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
  <td width="48" valign="top">{img}</td>
  <td valign="top">
-   <div style="font:600 16px/1.35 {FONT};color:{INK}">{esc(t)}</div>
+   <div style="font:600 16px/1.35 {FONT};color:{INK}">{title}</div>
    <div style="font:14px/1.5 {FONT};color:{MUTED};padding-top:4px">{meta}</div>
    <div style="font:11px/1.6 Menlo,Consolas,monospace;color:{FAINT};padding-top:2px">{esc(idline)}</div></td>
  <td width="130" valign="top" align="right" style="padding-left:12px">
-   <div style="font:500 12px/1.6 {FONT};color:{MUTED};white-space:nowrap"><span style="color:{dot}">&#9679;</span>&nbsp;{esc(age)}</div>
-   {f'<div style="font:700 13px/1.5 {FONT};color:{INDIGO};white-space:nowrap">{esc(pay)}</div>' if pay else ""}
+   <div style="{age_style};white-space:nowrap"><span style="color:{dot}">&#9679;</span>&nbsp;{esc(age)}</div>
+   {f'<div style="padding-top:4px"><span style="display:inline-block;background:#eceef7;color:{INDIGO};font:800 14px/1 {FONT};padding:5px 9px;border-radius:6px;white-space:nowrap">{esc(pay)}</span></div>' if pay else ""}
    <a href="{esc(u)}" style="display:inline-block;margin-top:10px;background:{EMERALD};color:#ffffff;font:600 13px/1 {FONT};
       text-decoration:none;padding:10px 18px;border-radius:8px;white-space:nowrap">Apply</a></td></tr></table></td></tr>"""
 
@@ -752,6 +757,7 @@ if __name__ == "__main__":
         assert re.sub(r"(\d[\d,.]*) ?USD", r"$\1", "42,000 USD - 88,000 USD").replace(" - ", " – ") == "$42,000 – $88,000"
         assert "ti.com" in logo("Texas Instruments", "https://edbz.fa.us2.oraclecloud.com/x", {})
         assert "lockheedmartin.com" in logo("Lockheed Martin", "https://lockheedmartin.eightfold.ai/careers/job/1", {})
+        assert re.split(f"((?:{EE.pattern})\\w*)", "Systems Engineering Intern", flags=re.I)[1] == "Systems Engineering"
         assert tier("Redmond, WA") == 0 and tier("Austin, TX") == 1 and tier("Tucson, AZ") == 2
         assert detect("https://jobs.eu.lever.co/quantinuum/abc") == ("lever", "quantinuum", "api.eu.lever.co")
         assert detect("https://ats.rippling.com/rev-robotics/jobs/1") == ("rippling", "rev-robotics")
