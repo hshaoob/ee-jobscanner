@@ -1,0 +1,32 @@
+name: scan
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # GitHub may start scheduled runs a few minutes late
+  workflow_dispatch:
+concurrency:
+  group: scan              # never two scans at once; the next one waits
+  cancel-in-progress: false
+permissions:
+  contents: write          # to save seen.json etc. back to the repo
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python jobscan.py test
+      - run: python jobscan.py
+        env:
+          JOBSCAN_TO: ${{ secrets.JOBSCAN_TO }}
+          JOBSCAN_FROM: ${{ secrets.JOBSCAN_FROM }}
+          JOBSCAN_PASS: ${{ secrets.JOBSCAN_PASS }}
+      - name: Save state
+        if: always()       # keep what was learned even if the run failed after emailing
+        run: |
+          git config user.name "jobscan-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || { git commit -qm "scan state"; git pull -q --rebase && git push -q; }
