@@ -1,4 +1,5 @@
 {
+"Advanced Micro Devices": "https://avatars.githubusercontent.com/u/430818?v=4&s=128",
 "Blue Origin": "https://www.google.com/s2/favicons?domain=blueorigin.com&sz=128",
 "Boeing": {
 "h": 59,
@@ -6,9 +7,19 @@
 "w": 250
 },
 "General Dynamics Mission Systems": "https://www.google.com/s2/favicons?domain=gdmissionsystems.com&sz=128",
+"Keysight Technologies": "https://www.google.com/s2/favicons?domain=keysight.com&sz=128",
+"L3Harris": "https://avatars.githubusercontent.com/u/11755637?v=4&s=128",
 "Lockheed Martin": "https://www.lockheedmartin.com/apple-touch-icon.png",
 "NVIDIA": "https://avatars.githubusercontent.com/u/1728152?v=4&s=128",
+"Qorvo": "https://www.google.com/s2/favicons?domain=qorvo.com&sz=128",
 "RTX": "https://www.google.com/s2/favicons?domain=rtx.com&sz=128",
+"RTX (Raytheon, Collins, Pratt)": "https://www.google.com/s2/favicons?domain=rtx.com&sz=128",
 "SpaceX": "https://www.google.com/s2/favicons?domain=spacex.com&sz=128",
-"Texas Instruments": "https://avatars.githubusercontent.com/u/24322022?v=4&s=128"
+"Texas Instruments": "https://avatars.githubusercontent.com/u/24322022?v=4&s=128",
+"Textron": {
+"h": 36,
+"u": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b6/Lycoming_Engines_%28USA%29.png/250px-Lycoming_Engines_%28USA%29.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail",
+"w": 250
+},
+"Trane Technologies": "https://www.google.com/s2/favicons?domain=tranetechnologies.com&sz=128"
 }

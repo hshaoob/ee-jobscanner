@@ -8,6 +8,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 SEEN, BOARDS, COMPANIES, UNSCANNABLE = HERE / "seen.json", HERE / "boards.json", HERE / "companies.txt", HERE / "unscannable.txt"
 NAMES = HERE / "names.json"  # board -> company display name
+QUEUE = HERE / "queue.json"  # matches waiting for the next batch of 30
 POSTED = {}  # url -> when Simplify listed it (for roles we only see via Simplify)
 TO = os.environ.get("JOBSCAN_TO")                      # where alerts go (kept out of the public repo)
 FROM = os.environ.get("JOBSCAN_FROM") or TO            # the sending Gmail account
@@ -650,15 +651,18 @@ def ago(p, now):
     return f"{d.days // 7} wks ago"
 
 
-def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
-    """Alert email. Each card reads in a Z (Gutenberg): logo+role -> age, company/place/pay -> Apply."""
+def email(jobs, seen_at, priority_names, send=True, first_seen=None):
+    """Alert email (best 30). Each card reads in a Z (Gutenberg): logo+role -> age, company/place/pay -> Apply.
+    first_seen: url -> when the role appeared on a board we already watched (its drop time when the company gives none).
+    Returns the URLs handled (sent, or skipped on purpose); anything else carries over to the next batch."""
+    first_seen = first_seen or {}
     esc = html.escape
     ranked = sorted(jobs, key=lambda j: (tier(j[3]), j[1] not in priority_names))
     with ThreadPoolExecutor(32) as ex:  # ponytail: pay/date lookups capped at 300; only the first-ever run has more new roles
         info = dict(zip((j[0] for j in ranked[:300]), ex.map(details, (j[0] for j in ranked[:300]))))
 
     def posted(j):  # company's own date > Simplify's date > "appeared on a board we already watch"
-        p = POSTED.get(j[0]) or info.get(j[0], (None,))[0] or (seen_at if j[0] in fresh else None)
+        p = POSTED.get(j[0]) or info.get(j[0], (None,))[0] or first_seen.get(j[0])
         return p.replace(tzinfo=datetime.timezone.utc) if p and p.tzinfo is None else p
 
     def age_days(j): return (seen_at - posted(j)).days if posted(j) else None
@@ -680,10 +684,13 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
                ("Recent", "Posted in the last 2 weeks, or undated", [j for j in ranked if (a := age_days(j)) is None or 3 < a <= 14]),
                ("Older, strong fit", "Open a while. Pair your application with a recruiter message",
                 [j for j in ranked if (a := age_days(j)) is not None and a > 14 and strong(j)])]
-    shown, cap = [], 30  # ponytail: ~30 cards (~2.8KB each) keeps the email under Gmail's ~100KB clip; only a first run needs more
+    shown, cap = [], 30  # batches of 30 (~2.8KB a card keeps the email under Gmail's ~100KB clip); the rest waits for the next hour
+    wanted = {j[0] for _, _, js in buckets for j in js}
     for i, (t, d, js) in enumerate(buckets):
         buckets[i] = (t, d, js[:max(0, cap - len(shown))]); shown += buckets[i][2]
-    if not shown: return print("nothing worth emailing (only older, weaker-fit roles)")
+    handled = {j[0] for j in jobs} - (wanted - {j[0] for j in shown})  # sent + skipped on purpose; the overflow carries over
+    if not shown: return print("nothing worth emailing (only older, weaker-fit roles)") or handled
+    waiting = len(wanted) - len(shown)
     cache = json.loads(LOGOS.read_text()) if LOGOS.exists() else {}
     firsts = {display(j): j for j in reversed(shown)}  # one lookup per company (parallel lookups of one company would race)
     with ThreadPoolExecutor(16) as ex: logos = dict(zip(firsts, ex.map(lambda kv: logo(kv[0], kv[1][0], cache), firsts.items())))
@@ -747,7 +754,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
     fresh_n, sea_n = len(buckets[0][2]), sum(tier(j[3]) == 0 for j in shown)
     headline = f"{fresh_n} fresh internship{'s' * (fresh_n != 1)}" if fresh_n else f"{len(shown)} new internship{'s' * (len(shown) != 1)}"
     summary = f"{len(shown)} role{'s' * (len(shown) != 1)} in this alert" + (f' &nbsp;&middot;&nbsp; <b style="color:#ecd6a8">{sea_n} in the Seattle area</b>' if sea_n else "")
-    hidden = len(jobs) - len(shown) - dropped_same_co
+    hidden = len(jobs) - len(wanted) - dropped_same_co
     body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;background:#f3f4f7">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f7"><tr><td align="center" style="padding:32px 16px">
@@ -762,17 +769,19 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
   Every role was live on the company's site when this was sent. Search the ID on their careers page to confirm it.
   {f"{hidden} older or weaker-fit roles were left out." if hidden > 0 else ""}
   {f"{dropped_same_co} more roles at companies already listed were left out, to keep it to your best 3 per company." if dropped_same_co else ""}
+  {f"{waiting} more matching roles are queued for the next alert." if waiting else ""}
   Fit % compares each role with your resume: title matches count double, and roles needing a graduate degree score lower.</td></tr>
 </table></td></tr></table></body></html>"""
     top = list(dict.fromkeys(map(display, sorted(buckets[0][2] or shown, key=lambda j: -fits[j[0]][0]))))[:3]
     subject = f"New EE Internship Alert: {', '.join(top)}" + (f" · {fresh_n} fresh" if fresh_n else "")
     (HERE / "last_email.html").write_text(body)
-    if not send: return print("Subject:", subject)
+    if not send: return print("Subject:", subject) or handled
     msg = MIMEText(body, "html")
     msg["Subject"], msg["From"], msg["To"] = subject, f"EE Internship Alerts <{FROM}>", TO
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
         s.login(FROM, secret())
         s.send_message(msg)
+    return handled
 
 
 def main(dry=False):
@@ -797,13 +806,19 @@ def main(dry=False):
         for u, c, t, l in sorted(jobs, key=lambda j: tier(j[3])):
             print(["★★", "★ ", "  "][tier(l)] + f" {c} | {t} | {l}\n    {u}")
         return print(f"{len(jobs)} matches")
-    seen = json.loads(SEEN.read_text()) if SEEN.exists() else {}  # url -> when we first saw it (≈ when it dropped)
+    seen = json.loads(SEEN.read_text()) if SEEN.exists() else {}  # url -> when it was sent (or skipped on purpose)
+    queue = json.loads(QUEUE.read_text()) if QUEUE.exists() else {}  # url -> first seen, for matches waiting for a batch
     new = [j for j in jobs if j[0] not in seen]
-    print(f"{len(boards)} boards, {len(jobs)} matches, {len(new)} new", flush=True)
     now = datetime.datetime.now(datetime.timezone.utc)
-    if new:
-        email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, fresh=fresh_urls if seen else frozenset())  # send first: a failed send retries next run
-        SEEN.write_text(json.dumps(seen | {j[0]: now.isoformat(timespec="minutes") for j in new}, indent=0))
+    first_seen = {u: datetime.datetime.fromisoformat(t) for u, t in queue.items()}
+    if seen: first_seen |= {u: now for u in fresh_urls if u not in queue}  # appeared since the last scan of a watched board
+    print(f"{len(boards)} boards, {len(jobs)} matches, {len(new)} new or queued", flush=True)
+    if new:  # send first: a failed send leaves everything queued for the next run
+        handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, first_seen=first_seen)
+        SEEN.write_text(json.dumps(seen | {u: now.isoformat(timespec="minutes") for u in handled}, indent=0))
+        queue = {j[0]: queue.get(j[0], now.isoformat(timespec="minutes")) for j in new if j[0] not in handled}
+    QUEUE.write_text(json.dumps(queue, indent=0))
+    (HERE / "last_run.txt").write_text(f"{now.isoformat(timespec='minutes')} {len(jobs)} matches, {len(queue)} queued\n")  # keeps the repo active
     if len(failed) > len(priority) // 4 or not jobs:  # make the run fail loudly (GitHub emails you) instead of quietly missing roles
         sys.exit(f"{len(failed)} of {len(priority)} priority boards failed; {len(jobs)} matches")
 

@@ -1,7 +1,7 @@
 name: scan
 on:
   schedule:
-    - cron: "*/30 * * * *"   # GitHub may start scheduled runs a few minutes late
+    - cron: "0 * * * *"      # hourly; GitHub may start scheduled runs a few minutes late
   workflow_dispatch:
 concurrency:
   group: scan              # never two scans at once; the next one waits
