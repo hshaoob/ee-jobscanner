@@ -454,24 +454,24 @@ PAY = re.compile(rf"(?:\$|USD ?){NUM}(?: ?USD)?[kK]? ?(?:-|–|—|to) ?(?:\$|US
 
 
 def details(url):
-    """-> (posted datetime|None, pay str|None, company str|None) from the job's own page/API. Best effort."""
+    """-> (posted datetime|None, pay str|None, company str|None, description text) from the job's own page/API. Best effort."""
     try:
         if m := re.search(r"greenhouse\.io/(?:embed/job_app\?for=)?([\w-]+)/jobs/(\d+)", url):
             d = fetch(f"https://boards-api.greenhouse.io/v1/boards/{m[1]}/jobs/{m[2]}?pay_transparency=true", timeout=15, tries=1)
             rng = (d.get("pay_input_ranges") or [{}])[0]
             pay = rng and rng.get("min_cents") and f"${rng['min_cents'] / 100:,.0f} – ${rng['max_cents'] / 100:,.0f}"
+            text = html.unescape(re.sub(r"<[^>]+>|&lt;[^&]*&gt;", " ", html.unescape(d.get("content", ""))))
             return (datetime.datetime.fromisoformat(d.get("first_published") or d["updated_at"]),
-                    pay or (PAY.search(html.unescape(re.sub(r"<[^>]+>|&lt;[^&]*&gt;", " ", html.unescape(d.get("content", ""))))) or [None])[0],
-                    d.get("company_name"))
+                    pay or (PAY.search(text) or [None])[0], d.get("company_name"), text)
         if m := re.search(r"https://([\w.-]+myworkday(?:jobs|site)\.com)/(?:recruiting/([\w-]+)/)?([\w-]+)(/job/.*)", url):
             host, tenant, site, path = m.groups()
             tenant = tenant or host.split(".")[0]
             info = fetch(f"https://{host}/wday/cxs/{tenant}/{site}{path}", timeout=15, tries=1)["jobPostingInfo"]
             text = html.unescape(re.sub(r"<[^>]+>", " ", info.get("jobDescription", "")))
             return (datetime.datetime.fromisoformat(info["startDate"]).replace(tzinfo=PACIFIC) if info.get("startDate") else None,
-                    (PAY.search(text) or [None])[0], None)
+                    (PAY.search(text) or [None])[0], None, text)
         page = fetch(url + ("&" if "?" in url else "?") + "in_iframe=1" if ".icims.com/" in url else url, raw=True, timeout=15, tries=1)
-        posted = pay = org = None
+        posted = pay = org = desc = None
         for block in re.findall(r"<script[^>]*application/ld\+json[^>]*>(.*?)</script>", page, re.S):
             try: d = json.loads(block)
             except ValueError: continue
@@ -480,14 +480,15 @@ def details(url):
             if d.get("datePosted"):
                 posted = datetime.datetime.fromisoformat(d["datePosted"].replace("Z", "+00:00").replace("+0000", "+00:00"))
             org = (d.get("hiringOrganization") or {}).get("name")
+            desc = html.unescape(re.sub(r"<[^>]+>", " ", html.unescape(d.get("description") or "")))
             v = ((d.get("baseSalary") or {}).get("value") or {})
             if v.get("minValue"):
                 pay = f"${float(v['minValue']):,.2f} – ${float(v.get('maxValue') or v['minValue']):,.2f}".replace(".00", "") + \
                       (f" / {v['unitText'].lower()}" if v.get("unitText") else "")
-        text = html.unescape(re.sub(r"<[^>]+>", " ", page))
-        return posted, pay or (PAY.search(text) or [None])[0], org
+        text = html.unescape(re.sub(r"<script.*?</script>|<style.*?</style>|<[^>]+>", " ", page, flags=re.S))
+        return posted, pay or (PAY.search(text) or [None])[0], org, desc or text
     except Exception:
-        return None, None, None
+        return None, None, None, ""
 
 
 SOURCES = {"myworkday": "Workday", "greenhouse": "Greenhouse", "lever.co": "Lever", "ashbyhq": "Ashby", "smartrecruiters": "SmartRecruiters",
@@ -505,6 +506,32 @@ def job_id(u):
 def source(u):
     host = urllib.parse.urlparse(u).netloc
     return next((v for k, v in SOURCES.items() if k in host), host.removeprefix("www."))
+
+
+# Resume profile (skills only, no personal details): (label, pattern, weight). Title hits count double.
+PROFILE = [
+    ("Avionics", r"avionic", 3), ("Wire harness", r"harness|ewis|wiring|cable assembl", 3),
+    ("HIL", r"hardware[- ]in[- ]the[- ]loop|\bhil\b|test ?bed", 3), ("Embedded / firmware", r"embedded|firmware|microcontroller|\bmcu\b|esp32|arduino", 2),
+    ("PCB design", r"\bpcb|schematic|board layout|kicad|altium|orcad", 2), ("Mixed-signal / analog", r"mixed[- ]signal|analog|op[- ]?amp|\badc\b|\bdac\b", 2),
+    ("DSP / signals", r"\bdsp\b|signal processing|\bfft\b|signals? and systems", 2), ("Hardware test & validation", r"validation|verification|hardware test|test engineer|bench test", 2),
+    ("Electrical engineering", r"electrical engineer|\bee\b|electronics", 1), ("Propulsion / aerospace", r"propulsion|aerospace|rocket|flight|launch|space", 1),
+    ("Systems integration", r"integration|systems engineer", 1), ("Manufacturing / DFM", r"\bdfm\b|manufactur|ipc|whma|620", 1),
+    ("Zuken / Creo / Windchill", r"zuken|\be3\.series|creo|windchill|\bpdm\b", 2), ("Sensors", r"sensor|thermocouple|\brtd\b|transducer|encoder", 1),
+    ("SPI / I2C / I2S", r"\bspi\b|\bi2c\b|\bi2s\b|\buart\b|\bcan bus\b", 1), ("C / C++", r"\bc\+\+|\bc/c\+\+|\bembedded c\b", 1),
+    ("Python / MATLAB", r"python|matlab", 1), ("Lab instruments", r"oscilloscope|multimeter|function generator|soldering|lab equipment", 1),
+    ("Root cause analysis", r"root cause|\brca\b|troubleshoot|failure analysis", 1), ("Controls", r"\bcontrols?\b|\bgnc\b|robotic", 1),
+]
+PROFILE = [(label, re.compile(pat, re.I), w) for label, pat, w in PROFILE]
+GRAD_REQUIRED = re.compile(r"(?:pursuing|enrolled in|currently in)\s+(?:a\s+)?(?:master|ph\.?d|graduate)[^.]{0,60}(?:required|degree)|"
+                           r"must be (?:a )?(?:master|ph\.?d|graduate) student", re.I)
+
+
+def fit(title, text=""):
+    """-> (score 0-100, label, top matching skills). Title matches weigh double; grad-only roles are penalized."""
+    hits = [(label, w * (2 if rx.search(title) else 1)) for label, rx, w in PROFILE if rx.search(title) or rx.search(text or "")]
+    score = min(100, sum(w for _, w in hits) * 6 - (35 if GRAD_REQUIRED.search(text or "") else 0))
+    label = "Strong fit" if score >= 55 else "Good fit" if score >= 30 else "Stretch"
+    return max(score, 0), label, [l for l, _ in sorted(hits, key=lambda h: -h[1])[:3]]
 
 
 def pretty(c):
@@ -605,7 +632,15 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
         org = info.get(j[0], (None, None, None))[2]
         return re.sub(r",? (?:Inc\.?|LLC|Corp\.?|Corporation)$", "", (org if org and len(org) < 40 else None) or j[1].split(" (via")[0])
 
-    strong = lambda j: tier(j[3]) <= 1 or j[1] in priority_names
+    fits = {j[0]: fit(j[2], info.get(j[0], (None, None, None, ""))[3]) for j in ranked}
+    # best fit first (Seattle still leads); at most 3 roles per company so applications look targeted, not scattershot
+    ranked.sort(key=lambda j: (tier(j[3]) > 0, -fits[j[0]][0]))
+    per_co, capped = collections.Counter(), []
+    for j in ranked:
+        per_co[display(j)] += 1
+        if per_co[display(j)] <= 3: capped.append(j)
+    dropped_same_co, ranked = len(ranked) - len(capped), capped
+    strong = lambda j: tier(j[3]) <= 1 or j[1] in priority_names or fits[j[0]][1] == "Strong fit"
     buckets = [("Fresh", "Posted in the last 3 days", [j for j in ranked if (a := age_days(j)) is not None and a <= 3]),
                ("Recent", "Posted in the last 2 weeks, or undated", [j for j in ranked if (a := age_days(j)) is None or 3 < a <= 14]),
                ("Older, strong fit", "Open a while. Pair your application with a recruiter message",
@@ -625,7 +660,8 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
 
     def card(j):
         u, c, t, loc = j
-        _, pay, _ = info.get(u, (None, None, None))
+        _, pay, _, _ = info.get(u, (None, None, None, ""))
+        score, fit_label, matched = fits[u]
         company, p, a = display(j), posted(j), age_days(j)
         if pay: pay = re.sub(r"(\d[\d,.]*) ?USD", r"$\1", pay).replace("$$", "$").replace(" - ", "–").replace(" – ", "–") \
             .replace(" to ", "–").replace("/Hr", "/hr").replace(" /", "/")
@@ -638,7 +674,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
         age_style = f"font:700 12px/1.6 {FONT};color:{EMERALD}" if a is not None and a <= 3 else f"font:500 12px/1.6 {FONT};color:{MUTED}"
         # highlight the EE terms that made this role match (RF, PCB, power systems, FPGA, ...)
         title = "".join(f'<span style="background:#f5ecd2;padding:0 3px;border-radius:3px">{esc(x)}</span>' if i % 2 else esc(x)
-                        for i, x in enumerate(re.split(f"((?:{EE.pattern})\\w*)", t, flags=re.I)) if x) if EE.search(t) else esc(t)
+                        for i, x in enumerate(re.split(f"((?:{EE.pattern})\\w*(?:\\s+(?:{EE.pattern})\\w*)*)", t, flags=re.I)) if x) if EE.search(t) else esc(t)
         place = f'<b style="color:{INK}">{esc(loc)}</b>' if loc and tier(loc) <= 1 else esc(loc or "Location not listed")
         meta = f'<span style="color:{INK}">{esc(company)}</span> &nbsp;&middot;&nbsp; {place}'
         if tier(loc) == 0: meta += (f' &nbsp;<span style="background:#f7efdf;color:#8a5a14;font:600 11px/1 {FONT};padding:3px 7px;'
@@ -647,6 +683,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
                f'border:1px solid {LINE};background:#fff">' if logos.get(company) else
                f'<div style="width:36px;height:36px;border-radius:8px;background:#d9e8f3;color:{INDIGO};'
                f'font:600 14px/36px {FONT};text-align:center">{esc(company[:1].upper())}</div>')
+        fit_color = {"Strong fit": EMERALD, "Good fit": INDIGO}.get(fit_label, MUTED)
         idline = (f"ID {job_id(u)} · " if job_id(u) else "") + ("Simplify" if "via Simplify" in c else source(u))
         return f"""<tr><td style="padding:18px 0;border-top:1px solid {LINE}">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
@@ -654,6 +691,8 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
  <td valign="top">
    <div style="font:600 16px/1.35 {FONT};color:{INK}">{title}</div>
    <div style="font:14px/1.5 {FONT};color:{MUTED};padding-top:4px">{meta}</div>
+   <div style="font:13px/1.5 {FONT};padding-top:5px"><b style="color:{fit_color}">{fit_label} &middot; {score}%</b>
+     <span style="color:{MUTED}">{esc(", ".join(matched)) if matched else "Few resume matches"}</span></div>
    <div style="font:11px/1.6 Menlo,Consolas,monospace;color:{FAINT};padding-top:2px">{esc(idline)}</div></td>
  <td width="130" valign="top" align="right" style="padding-left:12px">
    <div style="{age_style};white-space:nowrap"><span style="color:{dot}">&#9679;</span>&nbsp;{esc(age)}</div>
@@ -669,7 +708,7 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
     fresh_n, sea_n = len(buckets[0][2]), sum(tier(j[3]) == 0 for j in shown)
     headline = f"{fresh_n} fresh internship{'s' * (fresh_n != 1)}" if fresh_n else f"{len(shown)} new internship{'s' * (len(shown) != 1)}"
     summary = f"{len(shown)} role{'s' * (len(shown) != 1)} in this alert" + (f' &nbsp;&middot;&nbsp; <b style="color:#ecd6a8">{sea_n} in the Seattle area</b>' if sea_n else "")
-    hidden = len(jobs) - len(shown)
+    hidden = len(jobs) - len(shown) - dropped_same_co
     body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;background:#f3f4f7">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f7"><tr><td align="center" style="padding:32px 16px">
@@ -682,9 +721,11 @@ def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
 <tr><td style="padding:4px 32px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{sections}</table></td></tr>
 <tr><td style="padding:20px 32px 30px;border-top:1px solid {LINE};font:12px/1.6 {FONT};color:{FAINT}">
   Every role was live on the company's site when this was sent. Search the ID on their careers page to confirm it.
-  {f"{hidden} older or weaker-fit roles were left out." if hidden > 0 else ""}</td></tr>
+  {f"{hidden} older or weaker-fit roles were left out." if hidden > 0 else ""}
+  {f"{dropped_same_co} more roles at companies already listed were left out, to keep it to your best 3 per company." if dropped_same_co else ""}
+  Fit % compares each role with your resume: title matches count double, and roles needing a graduate degree score lower.</td></tr>
 </table></td></tr></table></body></html>"""
-    top = list(dict.fromkeys(map(display, buckets[0][2] or shown)))[:3]
+    top = list(dict.fromkeys(map(display, sorted(buckets[0][2] or shown, key=lambda j: -fits[j[0]][0]))))[:3]
     subject = f"New EE Internship Alert: {', '.join(top)}" + (f" · {fresh_n} fresh" if fresh_n else "")
     (HERE / "last_email.html").write_text(body)
     if not send: return print("Subject:", subject)
@@ -758,6 +799,8 @@ if __name__ == "__main__":
         assert "ti.com" in logo("Texas Instruments", "https://edbz.fa.us2.oraclecloud.com/x", {})
         assert "lockheedmartin.com" in logo("Lockheed Martin", "https://lockheedmartin.eightfold.ai/careers/job/1", {})
         assert re.split(f"((?:{EE.pattern})\\w*)", "Systems Engineering Intern", flags=re.I)[1] == "Systems Engineering"
+        assert fit("Avionics Harness Design Intern", "Zuken E3 wire harness, IPC/WHMA-A-620, HIL test bed")[1] == "Strong fit"
+        assert fit("Accounting Intern")[1] == "Stretch" and fit("Embedded Firmware Intern", "C/C++ SPI I2C oscilloscope")[1] != "Stretch"
         assert tier("Redmond, WA") == 0 and tier("Austin, TX") == 1 and tier("Tucson, AZ") == 2
         assert detect("https://jobs.eu.lever.co/quantinuum/abc") == ("lever", "quantinuum", "api.eu.lever.co")
         assert detect("https://ats.rippling.com/rev-robotics/jobs/1") == ("rippling", "rev-robotics")
