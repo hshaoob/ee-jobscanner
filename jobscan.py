@@ -513,52 +513,114 @@ def pretty(c):
     return c[:1].upper() + c[1:]
 
 
-def email(jobs, seen_at, priority_names, send=True):
-    """HTML alert: Seattle / preferred / other US; posted, company, role, location, pay, Apply button."""
+AVATAR = ["#0e7c57", "#2563eb", "#7c3aed", "#c2410c", "#0891b2", "#be185d", "#4d7c0f"]
+
+
+def ago(p, now):
+    d = now - p
+    if d < datetime.timedelta(hours=1): return "Just posted"
+    if d < datetime.timedelta(days=1): return f"Posted {d.seconds // 3600}h ago"
+    if d.days < 14: return f"Posted {d.days}d ago"
+    return f"Posted {d.days // 7} wks ago"
+
+
+def email(jobs, seen_at, priority_names, send=True, fresh=frozenset()):
+    """Card-style HTML alert. Fresh drops first; old roles only if they're a strong fit (recruiter outreach)."""
     esc = html.escape
-    with ThreadPoolExecutor(32) as ex:  # look up pay/post date for the new roles only
-        ranked = sorted(jobs, key=lambda j: (tier(j[3]), j[1] not in priority_names))
-        # ponytail: pay/date lookups capped at 300 per email; only the first-ever run is bigger than that
+    ranked = sorted(jobs, key=lambda j: (tier(j[3]), j[1] not in priority_names))
+    with ThreadPoolExecutor(32) as ex:  # ponytail: pay/date lookups capped at 300; only the first-ever run has more new roles
         info = dict(zip((j[0] for j in ranked[:300]), ex.map(details, (j[0] for j in ranked[:300]))))
 
-    def when(j):
-        p = POSTED.get(j[0]) or info.get(j[0], (None,))[0]
-        if p and p.tzinfo is None: p = p.replace(tzinfo=datetime.timezone.utc)
-        return (p.astimezone(PACIFIC).strftime("%b %-d, %-I:%M %p") if p.hour or p.minute else p.strftime("%b %-d")) if p else \
-            "found " + seen_at.astimezone(PACIFIC).strftime("%b %-d, %-I:%M %p")
+    def posted(j):  # company's own date > Simplify's date > "we saw it appear on a board we already watch"
+        p = POSTED.get(j[0]) or info.get(j[0], (None,))[0] or (seen_at if j[0] in fresh else None)
+        return p.replace(tzinfo=datetime.timezone.utc) if p and p.tzinfo is None else p
 
-    def row(j):
+    def age_days(j): return (seen_at - posted(j)).days if posted(j) else None
+    strong = lambda j: tier(j[3]) <= 1 or j[1] in priority_names
+    buckets = [
+        ("Fresh drops", "Posted in the last 3 days. Apply today.", [j for j in ranked if (a := age_days(j)) is not None and a <= 3]),
+        ("New to your radar", "Posted within two weeks, or the company doesn't publish a date.",
+         [j for j in ranked if (a := age_days(j)) is None or 3 < a <= 14]),
+        ("Older but a strong fit", "Open for a while. Worth a recruiter message alongside the application.",
+         [j for j in ranked if (a := age_days(j)) is not None and a > 14 and strong(j)]),
+    ]
+    now = seen_at
+
+    def display(j):  # company name: the posting's own org name if short, minus Inc/LLC
+        org = info.get(j[0], (None, None, None))[2]
+        return re.sub(r",? (?:Inc\.?|LLC|Corp\.?|Corporation)$", "", (org if org and len(org) < 40 else None) or j[1].split(" (via")[0])
+
+    def pill(text, bg, fg):
+        return (f'<span style="display:inline-block;background:{bg};color:{fg};font-size:12px;font-weight:600;'
+                f'padding:3px 9px;border-radius:999px;margin:0 6px 6px 0">{esc(text)}</span>')
+
+    def card(j):
         u, c, t, loc = j
         _, pay, org = info.get(u, (None, None, None))
-        company = (org if org and len(org) < 40 else None) or c
-        loc = loc if len(loc) < 90 else loc[:87] + "…"
-        td = 'style="padding:10px 8px;border-bottom:1px solid #e3e7e5;vertical-align:top;font-size:14px"'
-        proof = f"Job ID {job_id(u)} · " if job_id(u) else ""
-        proof += f"{'Simplify listing' if 'via Simplify' in c else source(u)} · seen live {seen_at.astimezone(PACIFIC):%b %-d, %-I:%M %p}"
-        return (f'<tr><td {td}>{esc(when(j))}</td><td {td}><b>{esc(company)}</b></td>'
-                f'<td {td}>{esc(t)}<div style="font-size:12px;color:#5d6a65;margin-top:3px">{esc(proof)}</div></td>'
-                f'<td {td}>{esc(loc)}</td><td {td}>{esc(pay or "Not listed")}</td>'
-                f'<td {td}><a href="{esc(u)}" style="display:inline-block;background:#1f5a43;color:#fff;text-decoration:none;'
-                f'padding:7px 14px;border-radius:5px;font-weight:600;white-space:nowrap">Apply</a></td></tr>')
+        company = display(j)
+        if pay: pay = re.sub(r"(\d[\d,.]*) ?USD", r"$\1", pay).replace("$$", "$").replace(" - ", " – ").replace(" to ", " – ").replace("/Hr", "/hr").replace(" /", "/")
+        if loc[:1].islower(): loc = re.sub(r"\b[a-z]", lambda m: m[0].upper(), loc)  # "el segundo" -> "El Segundo"
+        initials = "".join(w[0] for w in re.findall(r"[A-Za-z0-9]+", company)[:2]).upper() or "?"
+        color = AVATAR[sum(map(ord, company)) % len(AVATAR)]
+        p, a = posted(j), age_days(j)
+        pills = pill(ago(p, now), *(("#dcfce7", "#166534") if a is not None and a <= 3 else ("#fef3c7", "#92400e") if a is None or a <= 14
+                                    else ("#fee2e2", "#991b1b"))) if p else pill("Post date not listed", "#eef2f0", "#56645e")
+        pills += pill("Seattle area", "#dbeafe", "#1e40af") if tier(loc) == 0 else pill("Preferred city", "#e0e7ff", "#3730a3") if tier(loc) == 1 else ""
+        pills += pill(pay, "#ecfdf5", "#065f46") if pay else ""
+        pills += pill("Via Simplify", "#f3f4f6", "#4b5563") if "via Simplify" in c else ""
+        loc = loc if len(loc) < 80 else loc[:77] + "…"
+        proof = (f"Job ID {job_id(u)} · " if job_id(u) else "") + f"{'Simplify' if 'via Simplify' in c else source(u)}"
+        return f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8e5;border-radius:12px;margin:0 0 12px;background:#ffffff">
+ <tr><td width="52" valign="top" style="padding:16px 0 16px 16px">
+   <div style="width:40px;height:40px;border-radius:10px;background:{color};color:#fff;font:700 15px/40px Helvetica,Arial,sans-serif;text-align:center">{esc(initials)}</div></td>
+ <td valign="top" style="padding:14px 16px 14px 12px">
+   <div style="font-size:16px;font-weight:700;color:#14201b;line-height:1.3">{esc(t)}</div>
+   <div style="font-size:14px;color:#3c4a44;margin:3px 0 10px"><b>{esc(company)}</b> &middot; {esc(loc or "Location not listed")}</div>
+   <div>{pills}</div>
+   <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:6px"><tr>
+     <td style="background:#0e7c57;border-radius:8px"><a href="{esc(u)}" style="display:inline-block;padding:9px 20px;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none">Apply now &rarr;</a></td>
+     <td style="padding-left:12px;font:12px Menlo,Consolas,monospace;color:#7a8781">{esc(proof)}</td></tr></table>
+ </td></tr></table>"""
 
-    th = 'style="text-align:left;padding:8px;font-size:12px;color:#5d6a65;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #1f5a43"'
-    head = "".join(f"<th {th}>{h}</th>" for h in ("Posted", "Company", "Role", "Location", "Pay", ""))
-    counts = [sum(tier(j[3]) == n for j in jobs) for n in range(3)]
-    shown = ranked[:300]  # ponytail: Gmail clips ~100KB emails; only the first-ever run has more new roles than this
-    groups = [[j for j in shown if tier(j[3]) == n] for n in range(3)]
-    sections = "".join(
-        f'<h2 style="font-size:17px;margin:28px 0 8px;color:#18201d">{name} ({len(g)})</h2>'
-        f'<table style="border-collapse:collapse;width:100%">{head}{"".join(map(row, g))}</table>'
-        for name, g in zip(("★★ Seattle area", "★ Your preferred cities", "Other US"), groups) if g)
-    top = list(dict.fromkeys((info.get(j[0], (0, 0, None))[2] or j[1]).split(" (via")[0] for j in ranked))[:4]
-    subject = f"New EE Internship Alert: {', '.join(top)} ({len(jobs)} new role{'s' * (len(jobs) > 1)})"
-    body = (f'<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#18201d;max-width:1000px">'
-            f'<p style="font-size:15px">{len(jobs)} new undergrad EE internships: <b>{counts[0]} in the Seattle area</b>, '
-            f'{counts[1]} in your other preferred cities.'
-            + (f' Showing the top {len(shown)}, Seattle and preferred cities first.' if len(shown) < len(jobs) else '') +
-            f' Posted time comes from the company\'s own listing where it gives one; '
-            f'otherwise it\'s when the scanner first found the role (it checks every 30 minutes).</p>{sections}</div>')
-    (HERE / "last_email.html").write_text(f'<meta charset="utf-8"><!-- Subject: {esc(subject)} -->\n{body}')
+    shown, cap = [], 60  # ponytail: ~60 cards keeps the email under Gmail's ~100KB clip; only a first run needs more
+    sections = ""
+    for title, blurb, js in buckets:
+        js = js[:max(0, cap - len(shown))]
+        if not js: continue
+        shown += js
+        sections += (f'<tr><td style="padding:26px 24px 10px"><div style="font-size:13px;font-weight:800;letter-spacing:.08em;'
+                     f'text-transform:uppercase;color:#0e7c57">{title} &nbsp;<span style="color:#9aa6a0">{len(js)}</span></div>'
+                     f'<div style="font-size:13px;color:#56645e;margin-top:3px">{blurb}</div></td></tr>'
+                     f'<tr><td style="padding:0 24px">{"".join(map(card, js))}</td></tr>')
+    if not shown: return print("nothing worth emailing (only older, weaker-fit roles)")
+    counts = [len(buckets[0][2]), sum(tier(j[3]) == 0 for j in shown), sum(tier(j[3]) == 1 for j in shown)]
+    stat = lambda n, label, color: (f'<td align="center" style="padding:14px 8px;background:#12483a;border-radius:10px">'
+                                    f'<div style="font-size:26px;font-weight:800;color:{color}">{n}</div>'
+                                    f'<div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#b7d3c7">{label}</div></td>')
+    hidden = len(jobs) - len(shown)
+    body = f"""<!doctype html><html><body style="margin:0;background:#eef2f0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#f7faf8;border-radius:16px;overflow:hidden;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif">
+ <tr><td style="background:#0e3b2c;padding:26px 24px 22px;border-bottom:4px solid #34d399">
+   <div style="font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#34d399">EE Internship Alerts</div>
+   <div style="font-size:24px;font-weight:800;color:#ffffff;margin:6px 0 4px">{len(shown)} role{'s' * (len(shown) != 1)} worth your attention</div>
+   <div style="font-size:13px;color:#b7d3c7">Undergrad electrical engineering internships &middot; {seen_at.astimezone(PACIFIC):%A, %b %-d, %-I:%M %p} PT</div>
+   <table role="presentation" width="100%" cellpadding="0" cellspacing="6" style="margin-top:16px"><tr>
+     {stat(counts[0], "Fresh drops", "#34d399")}{stat(counts[1], "Seattle area", "#93c5fd")}{stat(counts[2], "Preferred cities", "#c4b5fd")}</tr></table>
+ </td></tr>
+ {sections}
+ <tr><td style="padding:14px 24px 26px;font-size:12px;line-height:1.6;color:#7a8781">
+   Every role was live on the company's own site when this was sent. The job ID under each role is the company's requisition number:
+   search it on their careers site to confirm. "Just posted" means it appeared since the previous scan (every 30 minutes).
+   {f"{hidden} older or lower-fit roles were left out." if hidden > 0 else ""}
+ </td></tr>
+</table></td></tr></table></body></html>"""
+    lead = buckets[0][2] or shown
+    top = list(dict.fromkeys(map(display, lead)))[:3]
+    subject = (f"New EE Internship Alert: {', '.join(top)}"
+               + (f" · {counts[0]} fresh drop{'s' * (counts[0] != 1)}" if counts[0] else f" · {len(shown)} roles"))
+    (HERE / "last_email.html").write_text(f"<!-- Subject: {esc(subject)} -->\n" + body.replace("<html>", '<html><meta charset="utf-8">', 1))
     if not send: return print("Subject:", subject)
     msg = MIMEText(body, "html")
     msg["Subject"], msg["From"], msg["To"] = subject, f"EE Internship Alerts <{FROM}>", TO
@@ -568,7 +630,9 @@ def email(jobs, seen_at, priority_names, send=True):
 
 
 def main(dry=False):
+    prev_boards = {tuple(b) for b in json.loads(BOARDS.read_text())} if BOARDS.exists() else set()
     boards, jobs = discover()
+    fresh_urls = set()
     jobs = [j for j in jobs if keep(j[2], j[3])]
     low = lambda b: tuple(x.lower() for x in b)
     priority = {low(b) for b in BUILTIN} | {low(b) for l in (COMPANIES.read_text().splitlines() if COMPANIES.exists() else []) if (b := detect(l.split("#")[0].strip()))}
@@ -580,6 +644,7 @@ def main(dry=False):
                 continue
             name = pretty(names.get("|".join(b)) or (b[1] if len(b) > 1 else b[0]))
             jobs += [(u, name, t, l) for u, c, t, l in res if keep(t, l)]
+            if b in prev_boards: fresh_urls |= {u for u, *_ in res}
     jobs = list({j[0]: j for j in jobs}.values())
     for f in failed: print("PRIORITY BOARD FAILED", f, file=sys.stderr)
     if dry:
@@ -591,7 +656,7 @@ def main(dry=False):
     print(f"{len(boards)} boards, {len(jobs)} matches, {len(new)} new", flush=True)
     now = datetime.datetime.now(datetime.timezone.utc)
     if new:
-        email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority})  # send first: a failed send retries next run
+        email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, fresh=fresh_urls if seen else frozenset())  # send first: a failed send retries next run
         SEEN.write_text(json.dumps(seen | {j[0]: now.isoformat(timespec="minutes") for j in new}, indent=0))
     if len(failed) > len(priority) // 4 or not jobs:  # make the run fail loudly (GitHub emails you) instead of quietly missing roles
         sys.exit(f"{len(failed)} of {len(priority)} priority boards failed; {len(jobs)} matches")
@@ -620,6 +685,10 @@ if __name__ == "__main__":
         assert job_id("https://job-boards.greenhouse.io/spacex/jobs/8616338002") == "8616338002"
         assert job_id("https://textron.taleo.net/careersection/textron/jobdetail.ftl?job=342717") == "342717"
         assert source("https://careers-gdms.icims.com/jobs/75140/x/job") == "iCIMS" and source("https://careers.amd.com/jobs/1") == "careers.amd.com"
+        n = datetime.datetime(2026, 9, 30, 12, tzinfo=datetime.timezone.utc)
+        assert ago(n - datetime.timedelta(minutes=20), n) == "Just posted" and ago(n - datetime.timedelta(hours=5), n) == "Posted 5h ago"
+        assert ago(n - datetime.timedelta(days=40), n) == "Posted 5 wks ago"
+        assert re.sub(r"(\d[\d,.]*) ?USD", r"$\1", "42,000 USD - 88,000 USD").replace(" - ", " – ") == "$42,000 – $88,000"
         assert tier("Redmond, WA") == 0 and tier("Austin, TX") == 1 and tier("Tucson, AZ") == 2
         assert detect("https://jobs.eu.lever.co/quantinuum/abc") == ("lever", "quantinuum", "api.eu.lever.co")
         assert detect("https://ats.rippling.com/rev-robotics/jobs/1") == ("rippling", "rev-robotics")
@@ -642,7 +711,7 @@ if __name__ == "__main__":
         print("ok")
     elif sys.argv[1:2] == ["preview"]:  # build the alert for one company's current roles -> last_email.html (no send)
         b = detect(sys.argv[2]); now = datetime.datetime.now(datetime.timezone.utc)
-        email([(u, pretty(c), t, l) for u, c, t, l in SCANNERS[b[0]](*b[1:]) if keep(t, l)], now, set(), send=False)
+        email([(u, pretty(c), t, l) for u, c, t, l in SCANNERS[b[0]](*b[1:]) if keep(t, l)], now, set(), send=sys.argv[3:] == ["send"])
     elif sys.argv[1:] == ["dry"]:  # full scan, print results, no email, no seen.json
         main(dry=True)
     elif sys.argv[1:2] == ["try"]:  # python3 jobscan.py try <careers url>: preview what one company returns
