@@ -3,6 +3,36 @@ Scans thousands of companies and lists which ones have new roles listed along wi
 
 Every hour, GitHub runs `jobscan.py` on its own servers: the scan starts at :00, the alert email arrives at :20. It checks ~4,900 company career sites (Workday, Greenhouse, Lever, Ashby, Oracle, iCIMS, SuccessFactors, Taleo, Eightfold, Phenom, Jibe, plus Apple, Google, Amazon, Microsoft) for undergrad EE internships. Before sending, every role is checked again: new to you, still open (not filled or expired), a good fit, and not too old. New matches are emailed in batches of up to 30, best fit first, Seattle first, at most 3 per company. Hours with nothing new still send a short "no new roles" email, so a missing alert means something broke. Nothing runs on your computer.
 
+## How it works
+
+```mermaid
+flowchart TD
+    A["⏰ :00 — GitHub Actions starts scan.yml<br/>(cron at :05 is only a backup)"] --> B["python jobscan.py test<br/>self-check"]
+    B --> C["discover()<br/>build the list of boards to poll"]
+
+    C1["boards.json<br/>(boards found before)"] --> C
+    C2["companies.txt<br/>(always checked)"] --> C
+    C3["Simplify listings<br/>(new company boards)"] --> C
+    C3 -. "sites that can't be polled" .-> F1["roles taken straight from Simplify<br/>→ unscannable.txt"]
+
+    C --> D["scan every board in parallel<br/>Workday · Greenhouse · Lever · Ashby · Oracle · iCIMS ·<br/>SuccessFactors · Taleo · Eightfold · Phenom · Jibe ·<br/>Apple · Google · Amazon · Microsoft"]
+    D --> E["keep()<br/>US · intern/co-op · EE keywords"]
+    F1 --> E
+    E --> G{"already in<br/>seen.json?"}
+    G -- yes --> X["skip"]
+    G -- no --> H["new + queued roles<br/>(queue.json)"]
+
+    H --> I["details()<br/>re-check each posting: still open?<br/>post date · pay · description"]
+    I --> J["fit()<br/>score vs. my resume → Strong / Good / Stretch"]
+    J --> K["drop closed postings · older than 2 weeks only if Strong fit<br/>group Fresh / Recent / Older · best fit, Seattle first, max 3 per company"]
+    K --> L["top 30 → HTML email with logos<br/>(logos.json, names.json)"]
+    L --> M["⏳ wait until :20, send via Gmail<br/>(no matches → 'no new roles' heartbeat)"]
+
+    M --> N["save state & commit to repo<br/>seen.json · queue.json (leftovers) · last_run.txt"]
+    N --> O["'next' job sleeps until the next :00<br/>and starts the next run"]
+    O --> A
+```
+
 ## Set it up from scratch
 
 You need a GitHub account, a Gmail account to send the alerts from, and a Mac or PC with `git` installed.
