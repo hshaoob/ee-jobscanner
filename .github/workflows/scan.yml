@@ -23,7 +23,7 @@ jobs:
         run: |
           alive=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/scan.yml/runs?per_page=5" -q "[.workflow_runs[] |
             select(.id != $GITHUB_RUN_ID and .status != \"completed\")] | length")
-          if [ "$alive" != 0 ]; then echo "chain is running; not starting a second one"; gh run cancel "$GITHUB_RUN_ID"; sleep 60; fi
+          if [ "$alive" != 0 ]; then echo "chain is running; not starting a second one"; gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"; sleep 60; fi
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -36,7 +36,7 @@ jobs:
           JOBSCAN_PASS: ${{ secrets.JOBSCAN_PASS }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # higher GitHub API limit for logo lookups
       - name: Save state
-        if: always()       # keep what was learned even if the run failed after emailing
+        if: ${{ !cancelled() }}   # keep what was learned even if the run failed after emailing (a stepped-aside run has nothing)
         run: |
           git config user.name "jobscan-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
