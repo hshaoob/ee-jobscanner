@@ -74,8 +74,21 @@ PREFERRED = re.compile(r"San Francisco|Bay Area|San Jose|Santa Clara|Sunnyvale|M
     r"Southfield|Pontiac|Indianapolis|Carmel, IN", re.I)
 
 
+# Unmistakably EE in the title: enough on its own. Any other title (generic "Engineering Intern", "Test", "Systems",
+# "Energy", ...) is only sent if the posting's own description asks for EE (EE_DESC).
+CORE_EE = re.compile(r"electrical|electronic|hardware|\bpcb|analog|mixed[- ]signal|power(?! ?bi\b| ?apps| ?platform)|\brf\b|"
+    r"microwave|antenna|signal integrity|\bsi\b|\bpi\b|\brtl\b|asic|\bsoc\b|digital design|design verification|\bdv\b|"
+    r"physical design|silicon|circuit|\bic\b|semiconductor|fpga|embedded|firmware|\bhil\b|mechatronic|avionic|harness|ewis|"
+    r"\bemi\b|\bemc\b|substation|\bp&c\b|\bt&d\b|grid|low[- ]voltage|\bdsp\b|signal processing|wireless|photonic|"
+    r"instrumentation|\bi&c\b|controls? eng", re.I)
+EE_DESC = re.compile(r"electrical|electronics\b|circuit|\bpcb|embedded|firmware|fpga|oscilloscope|analog|\bee\b", re.I)
+# Not EE work unless the title also says so ("Electrical Manufacturing Intern" passes, "Manufacturing Engineering Intern" doesn't)
 OTHER_DISCIPLINE = re.compile(r"mechanical|chemical|industrial|environmental|biomedical|structural|geotech|petroleum|"
-    r"materials|process|business|operations|supply chain|sourcing|finance", re.I)
+    r"materials|process|business|operations|supply|sourcing|finance|manufactur|quality|production|assembly|construction|"
+    r"estimat|program manag|project manag|procurement|purchasing|supplier|technician|facilit|safety|maintenance|"
+    r"logistics|warehouse|planner|buyer|transportation|roadway|transit|mining|naval|marine|water|fire protection|packaging|"
+    r"compliance|inventory|budget|\bsre\b|observability|infrastructure", re.I)
+MAX_AGE = 14  # days; older or undated postings are never sent
 
 
 GRAD = re.compile(r"ph\.?d|doctoral|post-?doc|master'?s|\bmba\b|\bms\b|\bm\.s\.|(?<!under)graduate|residency", re.I)
@@ -91,7 +104,7 @@ def tier(loc): return 0 if seattle(loc) else 1 if PREFERRED.search(loc) else 2  
 def match(t):
     if GRAD.search(t) and not UNDERGRAD.search(t): return False  # undergrad roles only
     sw = NOT_HW.search(t) and not HW.search(t)
-    ee = EE.search(t) or (re.search(r"engineer", t, re.I) and not OTHER_DISCIPLINE.search(t))  # generic "Engineering Internship"
+    ee = CORE_EE.search(t) or (not OTHER_DISCIPLINE.search(t) and (EE.search(t) or re.search(r"engineer", t, re.I)))
     return bool((INTERN.search(t) or COOP.search(t)) and ee and not NOT_EE.search(t) and not sw)
 
 
@@ -476,6 +489,28 @@ def details(url):
             text = html.unescape(re.sub(r"<[^>]+>", " ", info.get("jobDescription", "")))
             return (datetime.datetime.fromisoformat(info["startDate"]).replace(tzinfo=PACIFIC) if info.get("startDate") else None,
                     (PAY.search(text) or [None])[0], None, text)
+        if m := re.search(r"https://([\w.-]+oraclecloud\.com)/hcmUI/CandidateExperience/[a-z]{2}/sites/([\w-]+)/job/(\d+)", url):
+            it = fetch(f"https://{m[1]}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?expand=all&onlyData=true"
+                       f"&finder=ById;Id=%22{m[3]}%22,siteNumber={m[2]}", timeout=15, tries=1)["items"]
+            if not it: return None, None, None, None
+            it = it[0]
+            text = html.unescape(re.sub(r"<[^>]+>", " ", " ".join(it.get(k) or "" for k in (
+                "ExternalDescriptionStr", "ExternalResponsibilitiesStr", "ExternalQualificationsStr"))))
+            p = it.get("ExternalPostedStartDate")
+            return datetime.datetime.fromisoformat(p) if p else None, (PAY.search(text) or [None])[0], None, text
+        if m := re.search(r"smartrecruiters\.com/([^/?#]+)/(\d+)", url):
+            d = fetch(f"https://api.smartrecruiters.com/v1/companies/{m[1]}/postings/{m[2]}", timeout=15, tries=1)
+            if d.get("active") is False: return None, None, None, None
+            text = html.unescape(re.sub(r"<[^>]+>", " ", " ".join(
+                s.get("text") or "" for s in ((d.get("jobAd") or {}).get("sections") or {}).values())))
+            p = d.get("releasedDate")
+            return (datetime.datetime.fromisoformat(p.replace("Z", "+00:00")) if p else None,
+                    (PAY.search(text) or [None])[0], (d.get("company") or {}).get("name"), text)
+        if re.search(r"\.bamboohr\.com/careers/\d+$", url):
+            d = fetch(url + "/detail", timeout=15, tries=1)["result"]["jobOpening"]
+            text = html.unescape(re.sub(r"<[^>]+>", " ", d.get("description") or ""))
+            p = d.get("datePosted")
+            return datetime.datetime.fromisoformat(p) if p else None, (PAY.search(text) or [None])[0], None, text
         page = fetch(url + ("&" if "?" in url else "?") + "in_iframe=1" if ".icims.com/" in url else url, raw=True, timeout=15, tries=1)
         posted = pay = org = desc = None
         for block in re.findall(r"<script[^>]*application/ld\+json[^>]*>(.*?)</script>", page, re.S):
@@ -492,6 +527,11 @@ def details(url):
             if v.get("minValue"):
                 pay = f"${float(v['minValue']):,.2f} – ${float(v.get('maxValue') or v['minValue']):,.2f}".replace(".00", "") + \
                       (f" / {v['unitText'].lower()}" if v.get("unitText") else "")
+        if not posted and (m := re.search(r'\\?"(?:datePosted|postDateInGMT|postingDate|createdOn|publishedAt|postedDate)\\?"\s*:\s*'
+                                          r'\\?"(\d{4}-\d\d-\d\d(?:T[\d:.]+(?:Z|[+-]\d\d:?\d\d)?)?)', page)):  # Apple, Rippling, ...
+            posted = datetime.datetime.fromisoformat(m[1].replace("Z", "+00:00"))
+        if not posted and (m := re.search(r'itemprop="datePosted" content="(\w{3} \w{3} \d\d [\d:]{8}) UTC (\d{4})"', page)):  # SuccessFactors
+            posted = datetime.datetime.strptime(f"{m[1]} {m[2]}", "%a %b %d %H:%M:%S %Y").replace(tzinfo=datetime.timezone.utc)
         text = html.unescape(re.sub(r"<script.*?</script>|<style.*?</style>|<[^>]+>", " ", page, flags=re.S))
         if not desc and CLOSED.search(text): return None, None, None, None
         return posted, pay or (PAY.search(text) or [None])[0], org, desc or text
@@ -660,18 +700,17 @@ def ago(p, now):
     return f"{d.days // 7} wks ago"
 
 
-def email(jobs, seen_at, priority_names, send=True, first_seen=None):
+def email(jobs, seen_at, priority_names, send=True):
     """Alert email (best 30). Each card reads in a Z (Gutenberg): logo+role -> age, company/place/pay -> Apply.
-    first_seen: url -> when the role appeared on a board we already watched (its drop time when the company gives none).
+    Only roles with a real post date within MAX_AGE days, still open, and EE work are sent.
     Returns the URLs handled (sent, or skipped on purpose); anything else carries over to the next batch."""
-    first_seen = first_seen or {}
     esc = html.escape
-    ranked = sorted(jobs, key=lambda j: (tier(j[3]), j[1] not in priority_names))
-    with ThreadPoolExecutor(32) as ex:  # ponytail: pay/date lookups capped at 300; only the first-ever run has more new roles
-        info = dict(zip((j[0] for j in ranked[:300]), ex.map(details, (j[0] for j in ranked[:300]))))
+    looked = sorted(jobs, key=lambda j: (tier(j[3]), j[1] not in priority_names))[:300]  # ponytail: 300 lookups/hour; the rest wait
+    with ThreadPoolExecutor(32) as ex:
+        info = dict(zip((j[0] for j in looked), ex.map(details, (j[0] for j in looked))))
 
-    def posted(j):  # company's own date > Simplify's date > "appeared on a board we already watch"
-        p = POSTED.get(j[0]) or info.get(j[0], (None,))[0] or first_seen.get(j[0])
+    def posted(j):  # Simplify's date (sites we can't poll) > company's own date; never a guess
+        p = POSTED.get(j[0]) or info[j[0]][0]
         return p.replace(tzinfo=datetime.timezone.utc) if p and p.tzinfo is None else p
 
     def age_days(j): return (seen_at - posted(j)).days if posted(j) else None
@@ -680,8 +719,12 @@ def email(jobs, seen_at, priority_names, send=True, first_seen=None):
         org = info.get(j[0], (None, None, None))[2]
         return re.sub(r",? (?:Inc\.?|LLC|Corp\.?|Corporation)$", "", (org if org and len(org) < 40 else None) or j[1].split(" (via")[0])
 
-    ranked = [j for j in ranked if j[0] not in info or info[j[0]][3] is not None]  # expired postings count as handled, never sent
-    fits = {j[0]: fit(j[2], info.get(j[0], (None, None, None, ""))[3] or "") for j in ranked}
+    retry = {j[0] for j in looked if info[j[0]][3] == "" and not POSTED.get(j[0])}  # page didn't load: check again next hour
+    ranked = [j for j in looked if j[0] not in retry and info[j[0]][3] is not None  # expired postings: handled, never sent
+              and (a := age_days(j)) is not None and a <= MAX_AGE  # undated or too old: handled, never sent
+              and (CORE_EE.search(j[2]) or EE_DESC.search(info[j[0]][3]))]  # generic title: the posting itself must ask for EE
+    hidden = len(looked) - len(retry) - len(ranked)
+    fits = {j[0]: fit(j[2], info[j[0]][3] or "") for j in ranked}
     # best fit first (Seattle still leads); at most 3 roles per company so applications look targeted, not scattershot
     ranked.sort(key=lambda j: (tier(j[3]) > 0, -fits[j[0]][0]))
     per_co, capped = collections.Counter(), []
@@ -689,16 +732,13 @@ def email(jobs, seen_at, priority_names, send=True, first_seen=None):
         per_co[display(j)] += 1
         if per_co[display(j)] <= 3: capped.append(j)
     dropped_same_co, ranked = len(ranked) - len(capped), capped
-    strong = lambda j: tier(j[3]) <= 1 or j[1] in priority_names or fits[j[0]][1] == "Strong fit"
-    buckets = [("Fresh", "Posted in the last 3 days", [j for j in ranked if (a := age_days(j)) is not None and a <= 3]),
-               ("Recent", "Posted in the last 2 weeks, or undated", [j for j in ranked if (a := age_days(j)) is None or 3 < a <= 14]),
-               ("Older, strong fit", "Open a while. Pair your application with a recruiter message",
-                [j for j in ranked if (a := age_days(j)) is not None and a > 14 and strong(j)])]
+    buckets = [("Fresh", "Posted in the last 3 days", [j for j in ranked if age_days(j) <= 3]),
+               ("Recent", f"Posted in the last {MAX_AGE} days", [j for j in ranked if age_days(j) > 3])]
     shown, cap = [], 30  # batches of 30 (~2.8KB a card keeps the email under Gmail's ~100KB clip); the rest waits for the next hour
     wanted = {j[0] for _, _, js in buckets for j in js}
     for i, (t, d, js) in enumerate(buckets):
         buckets[i] = (t, d, js[:max(0, cap - len(shown))]); shown += buckets[i][2]
-    handled = {j[0] for j in jobs} - (wanted - {j[0] for j in shown})  # sent + skipped on purpose; the overflow carries over
+    handled = {j[0] for j in looked} - retry - (wanted - {j[0] for j in shown})  # sent + skipped on purpose; the rest carries over
     if not shown:  # still email, so a missing alert always means the scan broke
         print("no new roles worth sending")
         if send: deliver("EE Internship Alert: scan finished, no new roles",
@@ -768,7 +808,6 @@ def email(jobs, seen_at, priority_names, send=True, first_seen=None):
     fresh_n, sea_n = len(buckets[0][2]), sum(tier(j[3]) == 0 for j in shown)
     headline = f"{fresh_n} fresh internship{'s' * (fresh_n != 1)}" if fresh_n else f"{len(shown)} new internship{'s' * (len(shown) != 1)}"
     summary = f"{len(shown)} role{'s' * (len(shown) != 1)} in this alert" + (f' &nbsp;&middot;&nbsp; <b style="color:#ecd6a8">{sea_n} in the Seattle area</b>' if sea_n else "")
-    hidden = len(jobs) - len(wanted) - dropped_same_co
     body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;background:#f3f4f7">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f7"><tr><td align="center" style="padding:32px 16px">
@@ -781,7 +820,7 @@ def email(jobs, seen_at, priority_names, send=True, first_seen=None):
 <tr><td style="padding:4px 32px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{sections}</table></td></tr>
 <tr><td style="padding:20px 32px 30px;border-top:1px solid {LINE};font:12px/1.6 {FONT};color:{FAINT}">
   Every role was live on the company's site when this was sent. Search the ID on their careers page to confirm it.
-  {f"{hidden} older or weaker-fit roles were left out." if hidden > 0 else ""}
+  {f"{hidden} roles were left out: posted over {MAX_AGE} days ago, no post date, closed, or not EE work." if hidden > 0 else ""}
   {f"{dropped_same_co} more roles at companies already listed were left out, to keep it to your best 3 per company." if dropped_same_co else ""}
   {f"{waiting} more matching roles are queued for the next alert." if waiting else ""}
   Fit % compares each role with your resume: title matches count double, and roles needing a graduate degree score lower.</td></tr>
@@ -805,9 +844,7 @@ def deliver(subject, body):
 
 
 def main(dry=False):
-    prev_boards = {tuple(b) for b in json.loads(BOARDS.read_text())} if BOARDS.exists() else set()
     boards, jobs = discover()
-    fresh_urls = set()
     jobs = [j for j in jobs if keep(j[2], j[3])]
     low = lambda b: tuple(x.lower() for x in b)
     priority = {low(b) for b in BUILTIN} | {low(b) for l in (COMPANIES.read_text().splitlines() if COMPANIES.exists() else []) if (b := detect(l.split("#")[0].strip()))}
@@ -819,7 +856,6 @@ def main(dry=False):
                 continue
             name = pretty(names.get("|".join(b)) or (b[1] if len(b) > 1 else b[0]))
             jobs += [(u, name, t, l) for u, c, t, l in res if keep(t, l)]
-            if b in prev_boards: fresh_urls |= {u for u, *_ in res}
     jobs = list({j[0]: j for j in jobs}.values())
     for f in failed: print("PRIORITY BOARD FAILED", f, file=sys.stderr)
     if dry:
@@ -830,11 +866,9 @@ def main(dry=False):
     queue = json.loads(QUEUE.read_text()) if QUEUE.exists() else {}  # url -> first seen, for matches waiting for a batch
     new = [j for j in jobs if j[0] not in seen]
     now = datetime.datetime.now(datetime.timezone.utc)
-    first_seen = {u: datetime.datetime.fromisoformat(t) for u, t in queue.items()}
-    if seen: first_seen |= {u: now for u in fresh_urls if u not in queue}  # appeared since the last scan of a watched board
     print(f"{len(boards)} boards, {len(jobs)} matches, {len(new)} new or queued", flush=True)
     # send first (even with nothing new, as the hourly heartbeat): a failed send leaves everything queued for the next run
-    try: handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, first_seen=first_seen)
+    try: handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority})
     except Exception as e:  # record why (never the password itself) so a failed send is diagnosable from the repo
         got = f"FROM={'set' if FROM else 'MISSING'} TO={'set' if TO else 'MISSING'} PASS={len(os.environ.get('JOBSCAN_PASS', ''))} chars"
         (HERE / "last_run.txt").write_text(f"{now:%Y-%m-%dT%H:%M}Z EMAIL FAILED: {type(e).__name__}: {str(e)[:300]} | {got}\n")
@@ -864,6 +898,13 @@ if __name__ == "__main__":
         assert not match("Income Tax Compliance Internship") and not match("Research Intern - Data Systems")
         assert match("Data Center Critical Power Intern") and not match("Supply Chain Program Management Intern")
         assert not match("Applied Research Intern, NLP - Fall 2026")
+        for t in ("Manufacturing Engineering Intern", "Quality Engineering Intern", "Process Engineering Intern",
+                  "Test Technician Intern", "Construction Project Engineering Intern", "Supplier Quality Intern",
+                  "Production Engineering Co-op", "Industrial Engineering Intern", "Estimating Intern"):
+            assert not match(t), t
+        assert match("Electrical Manufacturing Engineering Intern") and match("Signal Processing Intern")
+        assert match("Test Engineering Intern") and not CORE_EE.search("Test Engineering Intern")  # needs EE in its description
+        assert not CORE_EE.search("Power BI Intern") and CORE_EE.search("Power Systems Intern")
         assert PAY.search("The hourly rate for our interns is 20 USD - 71 USD.")[0] == "20 USD - 71 USD"
         assert PAY.search("pay range $94000 - $125000 plus")[0] == "$94000 - $125000" and not PAY.search("since 2019 - 2026")
         assert job_id("https://nvidia.wd5.myworkdayjobs.com/X/job/US-CA/Hardware-Intern_JR2024692") == "JR2024692"

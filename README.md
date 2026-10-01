@@ -1,7 +1,7 @@
 # ee-jobscanner
 Scans thousands of companies and lists which ones have new roles listed along with my matching score to each role listed based on my resume and experience.
 
-Every hour, GitHub runs `jobscan.py` on its own servers: the scan starts at :00, the alert email arrives at :20. It checks ~4,900 company career sites (Workday, Greenhouse, Lever, Ashby, Oracle, iCIMS, SuccessFactors, Taleo, Eightfold, Phenom, Jibe, plus Apple, Google, Amazon, Microsoft) for undergrad EE internships. Before sending, every role is checked again: new to you, still open (not filled or expired), a good fit, and not too old. New matches are emailed in batches of up to 30, best fit first, Seattle first, at most 3 per company. Hours with nothing new still send a short "no new roles" email, so a missing alert means something broke. Nothing runs on your computer.
+Every hour, GitHub runs `jobscan.py` on its own servers: the scan starts at :00, the alert email arrives at :20. It checks ~4,900 company career sites (Workday, Greenhouse, Lever, Ashby, Oracle, iCIMS, SuccessFactors, Taleo, Eightfold, Phenom, Jibe, plus Apple, Google, Amazon, Microsoft) for undergrad EE internships. Before sending, every role is checked again: new to you, still open (not filled or expired), actually EE work, and posted by the company within the last 14 days. Roles with no post date are never sent. New matches are emailed in batches of up to 30, best fit first, Seattle first, at most 3 per company. Hours with nothing new still send a short "no new roles" email, so a missing alert means something broke. Nothing runs on your computer.
 
 ## How it works
 
@@ -24,7 +24,7 @@ flowchart TD
 
     H --> I["details()<br/>re-check each posting: still open?<br/>post date · pay · description"]
     I --> J["fit()<br/>score vs. my resume → Strong / Good / Stretch"]
-    J --> K["drop closed postings · older than 2 weeks only if Strong fit<br/>group Fresh / Recent / Older · best fit, Seattle first, max 3 per company"]
+    J --> K["drop closed, undated, older than 14 days, or not EE work<br/>group Fresh / Recent · best fit, Seattle first, max 3 per company"]
     K --> L["top 30 → HTML email with logos<br/>(logos.json, names.json)"]
     L --> M["⏳ wait until :20, send via Gmail<br/>(no matches → 'no new roles' heartbeat)"]
 
