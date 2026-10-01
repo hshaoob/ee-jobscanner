@@ -107,6 +107,11 @@
 "IMEG": "",
 "IRhythm Technologies": "https://www.irhythmtech.com/etc.clientlibs/irhythm/clientlibs/clientlib-common/resources/images/favicons/favicon-32.png",
 "Iberdrola Group": "https://www.google.com/s2/favicons?domain=iberdrola.com&sz=128",
+"Ingredion": {
+"h": 161,
+"u": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1d/Ingredion.svg/250px-Ingredion.svg.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail",
+"w": 250
+},
 "Insulet": "https://www.google.com/s2/favicons?domain=insulet.com&sz=128",
 "Intel": "https://www.google.com/s2/favicons?domain=intel.com&sz=128",
 "Invenergy": "https://www.google.com/s2/favicons?domain=invenergy.com&sz=128",
@@ -137,6 +142,7 @@
 "Marvell": "https://www.google.com/s2/favicons?domain=marvell.com&sz=128",
 "Marvin": "https://www.google.com/s2/favicons?domain=marvin.com&sz=128",
 "Michael Baker International": "https://www.google.com/s2/favicons?domain=mbakerintl.com&sz=128",
+"Micron": "https://www.google.com/s2/favicons?domain=micron.com&sz=128",
 "Mill": "https://www.google.com/s2/favicons?domain=mill.com&sz=128",
 "Monolithic Power Systems": "https://avatars.githubusercontent.com/u/20691870?v=4&s=128",
 "Moog ": "https://www.google.com/s2/favicons?domain=moog.com&sz=128",
@@ -180,10 +186,16 @@
 "Schneider Electric": "https://www.google.com/s2/favicons?domain=se.com&sz=128",
 "Scotts Miracle-Gro": "https://www.google.com/s2/favicons?domain=scottsmiraclegro.com&sz=128",
 "Senior plc": "https://www.seniorplc.com/~/media/D2FF656DDCA44111B80AAD7FA29B46FD.png",
+"Sherwin-Williams": "https://www.sherwin-williams.com/apple-touch-icon.png",
 "Shure": "https://www.google.com/s2/favicons?domain=shure.com.cn&sz=128",
 "SiFive": "https://avatars.githubusercontent.com/u/14154771?v=4&s=128",
 "Sierra Nevada": "https://www.google.com/s2/favicons?domain=sncorp.com&sz=128",
 "Skydio": "https://www.google.com/s2/favicons?domain=skydio.com&sz=128",
+"Skyworks": {
+"h": 84,
+"u": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/51/Skyworks_logo.svg/250px-Skyworks_logo.svg.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail",
+"w": 250
+},
 "Solidigm": "https://www.google.com/s2/favicons?domain=solidigm.com&sz=128",
 "SoloPulse": "https://www.google.com/s2/favicons?domain=solopulse.com&sz=128",
 "Sorting Robotics": "https://www.sortingrobotics.com/logos/sri-symbol-blue-192.png",
