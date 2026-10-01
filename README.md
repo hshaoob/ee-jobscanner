@@ -1,7 +1,7 @@
 # ee-jobscanner
 Scans thousands of companies and lists which ones have new roles listed along with my matching score to each role listed based on my resume and experience.
 
-Every hour, GitHub runs `jobscan.py` on its own servers. It checks ~4,900 company career sites (Workday, Greenhouse, Lever, Ashby, Oracle, iCIMS, SuccessFactors, Taleo, Eightfold, Phenom, Jibe, plus Apple, Google, Amazon, Microsoft) for undergrad EE internships. New matches are emailed in batches of up to 30, best fit first, Seattle first, at most 3 per company. Nothing runs on your computer.
+Every hour, GitHub runs `jobscan.py` on its own servers: the scan starts at :00, the alert email arrives at :20. It checks ~4,900 company career sites (Workday, Greenhouse, Lever, Ashby, Oracle, iCIMS, SuccessFactors, Taleo, Eightfold, Phenom, Jibe, plus Apple, Google, Amazon, Microsoft) for undergrad EE internships. Before sending, every role is checked again: new to you, still open (not filled or expired), a good fit, and not too old. New matches are emailed in batches of up to 30, best fit first, Seattle first, at most 3 per company. Hours with nothing new still send a short "no new roles" email, so a missing alert means something broke. Nothing runs on your computer.
 
 ## Set it up from scratch
 
@@ -41,12 +41,12 @@ In the repo go to **Settings → Secrets and variables → Actions → New repos
 They must be **Repository secrets**, not Environment secrets.
 
 ### 5. Start it
-Go to **Actions → scan → Run workflow**. The first run takes ~12–15 minutes and sends your first alert. After that it runs every hour by itself.
+Go to **Actions → scan → Run workflow**. The first run sends its alert at the next :20 (or as soon as its ~12–15 minute scan finishes, if that's later). After that each run starts the next one at :00, so it keeps going by itself.
 
 ## Day to day
 
 - **Pause or stop:** Actions → scan → **⋯ → Disable workflow**. Enable it again the same way.
-- **Run now:** Actions → scan → **Run workflow**.
+- **Restart it:** if a :20 alert doesn't arrive, Actions → scan → **Run workflow** once. If a scan is already running, the new one steps aside instead of doubling up.
 - **Add a company:** add its careers link to `companies.txt` (one per line, optional `# Company Name` after it), then commit.
   To check a link first: `python3 jobscan.py try '<link>'`
 - **If a run fails:** GitHub emails you. `last_run.txt` shows the last run's result or the email error.
@@ -58,8 +58,9 @@ Go to **Actions → scan → Run workflow**. The first run takes ~12–15 minute
 | File | What it is |
 |---|---|
 | `jobscan.py` | the scanner, filters, fit scoring and email |
+| `CHANGELOG.md` | patch notes |
 | `companies.txt` | companies always checked, whether or not they're hiring |
-| `.github/workflows/scan.yml` | the hourly schedule |
+| `.github/workflows/scan.yml` | the hourly cycle (each run starts the next; a cron at :05 is only a backup) |
 | `seen.json`, `queue.json` | roles already sent / waiting for the next batch of 30 |
 | `boards.json`, `names.json`, `logos.json` | discovered company boards, display names, logo links |
 | `unscannable.txt` | companies whose sites can't be scanned (their roles come from Simplify) |
