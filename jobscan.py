@@ -204,17 +204,34 @@ def s_ashby(tok):
 def s_sr(tok):
     return [(f"https://jobs.smartrecruiters.com/{tok}/{j['id']}", j["company"]["name"], j["name"],
              j["location"].get("fullLocation") or f"{j['location'].get('city')}, {j['location'].get('country')}")
-            for q in QUERIES for j in fetch(f"https://api.smartrecruiters.com/v1/companies/{tok}/postings?q={q}")["content"]]
+            for q in QUERIES for j in fetch(f"https://api.smartrecruiters.com/v1/companies/{tok}/postings?q={q}&country=us")["content"]]
+
+
+WD_US = "bc33aa3152ec42d4995f4791a106ed09"  # Workday's id for "United States of America", the same in every tenant
+
+
+def wd_filter(facets):
+    """US-only filter under whatever name this tenant gives it; else its intern filter (Micron). {} if neither."""
+    pairs = [(p, vs) for f in facets for p, vs in [(f["facetParameter"], f["values"])] +
+             [(v["facetParameter"], v["values"]) for v in f["values"] if "values" in v]]  # country is often nested in locations
+    us = [{p: [WD_US]} for p, vs in pairs if any(v.get("id") == WD_US for v in vs)]
+    interns = [{p: [v["id"] for v in vs if INTERN.search(v.get("descriptor", ""))]} for p, vs in pairs
+               if any(INTERN.search(v.get("descriptor", "")) for v in vs)]
+    return (us or interns or [{}])[0]
 
 
 def s_wd(host, tenant, site):
     out = []
     prefix = f"https://{host}/recruiting/{tenant}/{site}" if "myworkdaysite" in host else f"https://{host}/{site}"
+    api = f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
+    facets = wd_filter(fetch(api, {"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": "intern"}).get("facets", []))
     for q, pages in (("intern", 5), ("co-op", 1)):  # ponytail: 100 relevance-ranked hits per tenant; raise if a giant tenant misses roles
         for off in range(0, 20 * pages, 20):
-            page = fetch(f"https://{host}/wday/cxs/{tenant}/{site}/jobs",
-                         {"appliedFacets": {}, "limit": 20, "offset": off, "searchText": q}).get("jobPostings", [])
-            out += [(prefix + j["externalPath"], tenant, j["title"], j.get("locationsText", "")) for j in page if "externalPath" in j and "title" in j]
+            page = fetch(api, {"appliedFacets": facets if q == "intern" or WD_US in str(facets) else {},
+                               "limit": 20, "offset": off, "searchText": q}).get("jobPostings", [])
+            us_only = WD_US in str(facets)  # filtered to the US: "Austin (Oakhill, Office)" is in the US even without a state
+            out += [(prefix + j["externalPath"], tenant, j["title"], j.get("locationsText", "") + ", United States" * us_only)
+                    for j in page if "externalPath" in j and "title" in j]
             if len(page) < 20: break
     return out
 
@@ -247,9 +264,12 @@ def s_icims(host):
 
 def s_jibe(host):
     out = []
+    us = "&country=United%20States"
     for q in QUERIES:
         for p in range(1, 11):
-            jobs = fetch(f"https://{host}/api/jobs?keywords={q}&page={p}")["jobs"]
+            jobs = fetch(f"https://{host}/api/jobs?keywords={q}&page={p}{us}")["jobs"]
+            if not jobs and p == 1 and us:  # site spells it differently ("USA", TRC): search unfiltered
+                us = ""; jobs = fetch(f"https://{host}/api/jobs?keywords={q}&page={p}")["jobs"]
             out += [(f"https://{host}/jobs/{d['slug']}", host, d["title"],
                      f"{d.get('city', '')}, {d.get('state', '')}, {d.get('country', '')}") for d in (j["data"] for j in jobs)]
             if len(jobs) < 10: break
@@ -267,7 +287,23 @@ def s_sfrmk(host):
                 loc = re.search(r'(?:section-location-value"|class="jobLocation[^"]*")>\s*([^<]+?)\s*<', s[m.end():m.end() + 4000])
                 out.setdefault(m.group(1), (f"https://{host}{m.group(1)}", host, html.unescape(m.group(2)), loc.group(1) if loc else ""))
             if len(out) == before: break
-    return list(out.values())
+    return list(out.values()) or s_sfrmk_api(host)
+
+
+def s_sfrmk_api(host):
+    """Newer SuccessFactors sites (Skyworks, Seagate, BMW) render results with JS; their search API gives the post date too."""
+    out = []
+    for q in QUERIES:
+        for n in range(20):
+            res = fetch(f"https://{host}/services/recruiting/v1/jobs", {"locale": "en_US", "pageNumber": n, "sortBy": "", "keywords": q,
+                        "location": "", "facetFilters": {}, "brand": "", "skills": [], "categoryId": 0, "alertId": "", "rcmCandidateId": ""})["jobSearchResult"]
+            for j in (r["response"] for r in res):
+                u = f"https://{host}/job/{j['urlTitle']}/{j['id']}-en_US/"
+                if d := j.get("unifiedStandardStart"):
+                    POSTED[u] = datetime.datetime.strptime(d, "%m/%d/%y").replace(tzinfo=PACIFIC)
+                out.append((u, host, j["unifiedStandardTitle"], "; ".join(l.strip() for l in j.get("jobLocationShort") or [])))
+            if len(res) < 10: break
+    return out
 
 
 def s_phenom(base):
@@ -294,7 +330,7 @@ def s_ef(host, domain):
     out = []
     for q in QUERIES:
         for start in range(0, 100, 10):
-            ps = fetch(f"https://{host}/api/pcsx/search?domain={domain}&query={q}&start={start}",
+            ps = fetch(f"https://{host}/api/pcsx/search?domain={domain}&query={q}&start={start}&location=United%20States",
                        headers={"Accept": "application/json"})["data"]["positions"]
             out += [(f"https://{host}{p['positionUrl']}", domain, p["name"], "; ".join(p.get("standardizedLocations") or p["locations"]))
                     for p in ps]
@@ -916,6 +952,10 @@ if __name__ == "__main__":
                   "Antenna Design Intern", "Radar Systems Intern", "Controls & Automation Intern", "PLC Programming Intern",
                   "SCADA Intern", "MEP Electrical Design Intern", "Medical Device Electrical Intern", "Robotics Electrical Intern"):
             assert match(t) and CORE_EE.search(t), t
+        nested = [{"facetParameter": "locationMainGroup", "values": [{"facetParameter": "locationCountry", "values": [{"id": WD_US, "descriptor": "United States of America"}]}]}]
+        assert wd_filter(nested) == {"locationCountry": [WD_US]}
+        assert wd_filter([{"facetParameter": "workerSubType", "values": [{"id": "a", "descriptor": "Regular"}, {"id": "b", "descriptor": "Intern - Regular"}]}]) == {"workerSubType": ["b"]}
+        assert wd_filter([{"facetParameter": "timeType", "values": [{"id": "a", "descriptor": "Full time"}]}]) == {}
         assert not match("Project Controls Intern") and not match("Battery Cell Manufacturing Intern")
         assert PAY.search("The hourly rate for our interns is 20 USD - 71 USD.")[0] == "20 USD - 71 USD"
         assert PAY.search("pay range $94000 - $125000 plus")[0] == "$94000 - $125000" and not PAY.search("since 2019 - 2026")
