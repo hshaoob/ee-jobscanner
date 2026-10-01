@@ -44,7 +44,7 @@ jobs:
           git diff --cached --quiet || { git commit -qm "scan state"; git pull -q --rebase && git push -q; }
   next:
     needs: scan
-    if: always() && needs.scan.result != 'cancelled'   # a duplicate that stepped aside doesn't chain
+    if: always() && needs.scan.result != 'cancelled' && (needs.scan.result == 'success' || github.triggering_actor == 'github-actions[bot]')   # a backup run chains only if it scanned
     runs-on: ubuntu-latest
     timeout-minutes: 70
     steps:
