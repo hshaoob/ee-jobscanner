@@ -275,6 +275,22 @@ def s_jibe(host):
     return out
 
 
+HD_JOB = re.compile(r'\{"id":"(\d+)","title":"((?:[^"\\]|\\.)*)","url":"([^"]+)"[^{}]*?"locations":"((?:[^"\\]|\\.)*)"')
+
+
+def s_hd(host):
+    """Next.js career sites (Gulfstream, built by happydance): the job list is JSON inside each search page."""
+    out = {}
+    for q in QUERIES:
+        for n in range(1, 11):
+            s = fetch(f"https://{host}/en/jobs/?search={q}&page={n}", raw=True).replace('\\"', '"')
+            before = len(out)
+            for i, t, u, loc in HD_JOB.findall(s):
+                out.setdefault(i, (f"https://{host}{u}", host, json.loads(f'"{t}"'), json.loads(f'"{loc}"')))
+            if len(out) == before: break  # past the last page it repeats results
+    return list(out.values())
+
+
 def s_sfrmk(host):
     """SuccessFactors Recruiting Marketing sites (…/job/City-Title-ST-12345/123/): HTML search pages."""
     out = {}
@@ -393,7 +409,7 @@ def s_amazon():
 
 
 SCANNERS = {"gh": s_gh, "lever": s_lever, "ashby": s_ashby, "sr": s_sr, "wd": s_wd, "oracle": s_oracle, "icims": s_icims,
-            "jibe": s_jibe, "sfrmk": s_sfrmk, "phenom": s_phenom, "ef": s_ef, "taleo": s_taleo,
+            "jibe": s_jibe, "hd": s_hd, "sfrmk": s_sfrmk, "phenom": s_phenom, "ef": s_ef, "taleo": s_taleo,
             "apple": s_apple, "google": s_google, "amazon": s_amazon,
             "workable": s_workable, "bamboo": s_bamboo, "rippling": s_rippling, "bytedance": s_bytedance}
 MSFT = ("ef", "apply.careers.microsoft.com", "microsoft.com")
@@ -428,6 +444,7 @@ def detect(url):
         ("ef", r"https?://([\w.-]+)/careers\?.*\bdomain=([\w.-]+)", lambda h, d: (h, d)),
         ("sfrmk", r"https?://([\w.-]+)/(?:job|search)/.*[?&]ats=successfactors", lambda h: (h,)),
         ("sfrmk", r"https?://([\w.-]+)/?\?sfrmk$", lambda h: (h,)),
+        ("hd", r"https?://([\w.-]+)/?\?happydance$", lambda h: (h,)),
         ("phenom", r"https?://([\w.-]+/(?:[a-z]{2,6}/)?[a-z]{2})/job/", lambda b: (b,)),
         ("phenom", r"https?://([\w.-]+/(?:[a-z]{2,6}/)?[a-z]{2})/?\?phenom$", lambda b: (b,)),
     ]
@@ -990,6 +1007,7 @@ if __name__ == "__main__":
         assert detect("https://careers.cisco.com/global/en/job/2008430") == ("phenom", "careers.cisco.com/global/en")
         assert detect("https://careers.qorvo.com/job/Richardson-X-TX-75081/1374272000/?ats=successfactors") == ("sfrmk", "careers.qorvo.com")
         assert detect("https://www.tesla.com/careers/search/job/x-269198") is None
+        assert detect("https://careers.gulfstream.com?happydance") == ("hd", "careers.gulfstream.com")
         print("ok")
     elif sys.argv[1:2] == ["preview"]:  # build the alert for one company's current roles -> last_email.html (no send)
         b = detect(sys.argv[2]); now = datetime.datetime.now(datetime.timezone.utc)
