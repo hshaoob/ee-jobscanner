@@ -80,14 +80,18 @@ CORE_EE = re.compile(r"electrical|electronic|hardware|\bpcb|analog|mixed[- ]sign
     r"microwave|antenna|signal integrity|\bsi\b|\bpi\b|\brtl\b|asic|\bsoc\b|digital design|design verification|\bdv\b|"
     r"physical design|silicon|circuit|\bic\b|semiconductor|fpga|embedded|firmware|\bhil\b|mechatronic|avionic|harness|ewis|"
     r"\bemi\b|\bemc\b|substation|\bp&c\b|\bt&d\b|grid|low[- ]voltage|\bdsp\b|signal processing|wireless|photonic|"
-    r"instrumentation|\bi&c\b|controls? eng", re.I)
-EE_DESC = re.compile(r"electrical|electronics\b|circuit|\bpcb|embedded|firmware|fpga|oscilloscope|analog|\bee\b", re.I)
+    r"instrumentation|\bi&c\b|controls? eng|layout (?:design|eng)|\bev\b|electric vehicle|\bbms\b|high[- ]voltage|"
+    r"batter(?:y|ies) (?:systems?|pack|management|electrical|integration|test)|transmission (?:&|and) distribution|"
+    r"protection (?:&|and) control|\brelay|\bpv\b|photovoltaic|inverter|\bate\b|radar|\bplc|\bscada|"
+    r"controls? (?:&|and) automation|automation (?:&|and) controls?", re.I)
+EE_DESC = re.compile(r"electrical|electronics\b|circuit|\bpcb|embedded|firmware|fpga|oscilloscope|analog|\bee\b|\bplc|"
+    r"power (?:systems|electronics)|\brf\b|antenna|avionic|wire harness|\bhil\b|signal integrity|\bbms\b|high[- ]voltage", re.I)
 # Not EE work unless the title also says so ("Electrical Manufacturing Intern" passes, "Manufacturing Engineering Intern" doesn't)
 OTHER_DISCIPLINE = re.compile(r"mechanical|chemical|industrial|environmental|biomedical|structural|geotech|petroleum|"
     r"materials|process|business|operations|supply|sourcing|finance|manufactur|quality|production|assembly|construction|"
     r"estimat|program manag|project manag|procurement|purchasing|supplier|technician|facilit|safety|maintenance|"
     r"logistics|warehouse|planner|buyer|transportation|roadway|transit|mining|naval|marine|water|fire protection|packaging|"
-    r"compliance|inventory|budget|\bsre\b|observability|infrastructure", re.I)
+    r"compliance|inventory|budget|project control|\bsre\b|observability|infrastructure", re.I)
 MAX_AGE = 14  # days; older or undated postings are never sent
 
 
@@ -905,6 +909,14 @@ if __name__ == "__main__":
         assert match("Electrical Manufacturing Engineering Intern") and match("Signal Processing Intern")
         assert match("Test Engineering Intern") and not CORE_EE.search("Test Engineering Intern")  # needs EE in its description
         assert not CORE_EE.search("Power BI Intern") and CORE_EE.search("Power Systems Intern")
+        for t in ("PCB Layout Design Intern", "HIL Validation Intern", "Signal Integrity Intern", "Wire Harness Design Intern",
+                  "EV Systems Intern", "Battery Systems Engineering Intern", "BMS Engineering Intern", "High Voltage Engineering Intern",
+                  "Power Electronics Intern", "Transmission & Distribution Intern", "Protection and Control Intern", "Solar PV Design Intern",
+                  "Data Center Power Intern", "ASIC Design Intern", "Semiconductor Test Engineering Intern", "ATE Test Engineering Intern",
+                  "Antenna Design Intern", "Radar Systems Intern", "Controls & Automation Intern", "PLC Programming Intern",
+                  "SCADA Intern", "MEP Electrical Design Intern", "Medical Device Electrical Intern", "Robotics Electrical Intern"):
+            assert match(t) and CORE_EE.search(t), t
+        assert not match("Project Controls Intern") and not match("Battery Cell Manufacturing Intern")
         assert PAY.search("The hourly rate for our interns is 20 USD - 71 USD.")[0] == "20 USD - 71 USD"
         assert PAY.search("pay range $94000 - $125000 plus")[0] == "$94000 - $125000" and not PAY.search("since 2019 - 2026")
         assert job_id("https://nvidia.wd5.myworkdayjobs.com/X/job/US-CA/Hardware-Intern_JR2024692") == "JR2024692"

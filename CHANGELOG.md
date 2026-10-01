@@ -8,6 +8,8 @@
 
 **Only EE work.** A title must clearly be EE (electrical, hardware, PCB, RF, embedded, FPGA, power, ...) to qualify on its own. Manufacturing, quality, process, production, construction, technician, supplier and similar roles are dropped unless the title also says electrical/hardware. Generic titles ("Engineering Intern", "Test Engineering Intern") are only sent when the posting's own description asks for EE.
 
+**More EE role types recognized by title.** EV and battery systems / BMS, high voltage, transmission & distribution, protection & control, relay, solar PV and inverters, semiconductor ATE test, radar, PLC / SCADA / controls & automation, and PCB/IC layout now count as clearly EE, alongside hardware, PCB, HIL, signal/power integrity, avionics, wire harness, power electronics and power systems, data center power, embedded, firmware, FPGA/digital, ASIC, design verification, analog/mixed-signal, RF, antenna, wireless, DSP, and medical device / robotics / MEP electrical roles. "Project Controls" (cost scheduling) is excluded.
+
 ## 2026-09-30
 
 **Reliable hourly runs.** GitHub's built-in cron skipped most hours on this repo, so each run now starts the next one itself at :00. The cron (now at :05) is only a backup that restarts the cycle if it ever breaks. A backup or manual run steps aside if a scan is already running, so there are never two cycles or duplicate emails.
