@@ -123,9 +123,8 @@ def us(loc):
 
 
 def keep(title, loc):
-    """Internships: anywhere in US. Co-ops (not also internships): Seattle area only."""
-    if not (match(title) and us(loc)): return False
-    return bool(INTERN.search(title) or seattle(loc))
+    """Internships and co-ops anywhere in the US (Seattle ranks first in the alert, see tier())."""
+    return match(title) and us(loc)
 
 
 # ---------- fetching ----------
@@ -980,7 +979,7 @@ if __name__ == "__main__":
         assert keep("Electrical Engineering Intern", "US-VA-Manassas") and keep("RF Intern", "Torrance, CA")
         assert not keep("Electrical Engineering Intern", "Taiwan, Hsinchu") and not keep("RF Intern", "Toronto, ON, Canada")
         assert keep("Electrical Engineering Intern", "2 Locations") and keep("Hardware Intern", "US, CA, Santa Clara")
-        assert keep("Hardware Co-op", "Seattle, WA") and not keep("Hardware Co-op", "Austin, TX")
+        assert keep("Hardware Co-op", "Seattle, WA") and keep("Hardware Co-op", "Austin, TX") and not keep("Hardware Co-op", "Toronto, ON, Canada")
         assert keep("Hardware Intern/Co-op", "Austin, TX") and keep("RF Intern", "Markham, ON, CA; Austin, TX, US")
         assert not keep("RF Intern", "Markham, ON, CA") and not keep("IT Intern", "Cork, CO, IE") and keep("RF Intern", "San Diego, CA, US")
         assert PREFERRED.search("Hillsboro, Oregon") and PREFERRED.search("Portland, OR, USA") and not PREFERRED.search("Denver, CO")

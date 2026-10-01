@@ -8,6 +8,8 @@
 
 **Only EE work.** A title must clearly be EE (electrical, hardware, PCB, RF, embedded, FPGA, power, ...) to qualify on its own. Manufacturing, quality, process, production, construction, technician, supplier and similar roles are dropped unless the title also says electrical/hardware. Generic titles ("Engineering Intern", "Test Engineering Intern") are only sent when the posting's own description asks for EE.
 
+**Co-ops anywhere in the US.** Co-ops used to be Seattle-area only; now they're kept anywhere in the US, like internships. Seattle-area roles still lead every alert and carry the SEATTLE AREA badge.
+
 **US roles at global companies are no longer buried.** Each company's job board was searched worldwide and only the first ~100 hits were read, so at global companies (NXP, Micron, Applied Materials, Microsoft, Renesas, Schneider, ...) foreign postings crowded out the US ones. Workday, Eightfold, Jibe and SmartRecruiters searches now ask for US roles only (Workday tenants without a country filter use their intern filter instead, e.g. Micron). Workday roles from a US-filtered search count as US even when the location has no state ("Austin (Oakhill, Office)").
 
 **Newer SuccessFactors sites scanned again.** Skyworks, Seagate and BMW load their job lists with JavaScript, so the scanner saw nothing there; it now uses their search API, which also gives the post date.
