@@ -5697,6 +5697,10 @@
 ],
 [
 "gh",
+"ruggedrobotics"
+],
+[
+"gh",
 "sage49"
 ],
 [
@@ -9644,6 +9648,11 @@
 "oracle",
 "ebxs.fa.us2.oraclecloud.com",
 "CX_2"
+],
+[
+"oracle",
+"ecer.fa.em2.oraclecloud.com",
+"CX_1"
 ],
 [
 "oracle",
