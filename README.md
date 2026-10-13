@@ -2,7 +2,7 @@
 
 [![scan](https://github.com/hshaoob/ee-jobscanner/actions/workflows/scan.yml/badge.svg)](https://github.com/hshaoob/ee-jobscanner/actions/workflows/scan.yml)
 
-**Stop refreshing career pages.** Every hour this checks 5,000+ company job boards for new electrical engineering internships and co-ops, scores each one against *your* resume, and emails you the best matches.
+**Stop refreshing career pages.** Every hour this tool checks 5,000+ company job boards for new electrical engineering internships and co-ops, scores each one against *your* resume, and emails you the best matches.
 
 It's free, it runs on GitHub's servers, and nothing has to stay open on your computer.
 
