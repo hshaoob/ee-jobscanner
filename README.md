@@ -1,104 +1,93 @@
-# ee-jobscanner
-Scans thousands of companies and lists which ones have new roles listed along with my matching score to each role listed based on my resume and experience.
+# ee-jobscanner ⚡
 
-Every hour, GitHub runs `jobscan.py` on its own servers: the scan starts at :00, the alert email arrives at :20. It checks ~4,900 company career sites (Workday, Greenhouse, Lever, Ashby, Oracle, iCIMS, SuccessFactors, Taleo, Eightfold, Phenom, Jibe, plus Apple, Google, Amazon, Microsoft) for undergrad EE internships. Before sending, every role is checked again: new to you, still open (not filled or expired), actually EE work, and posted by the company within the last 14 days. Roles with no post date are never sent. New matches are emailed in batches of up to 30, best fit first, Seattle first, at most 3 per company. Hours with nothing new still send a short "no new roles" email, so a missing alert means something broke. Nothing runs on your computer.
+[![scan](https://github.com/hshaoob/ee-jobscanner/actions/workflows/scan.yml/badge.svg)](https://github.com/hshaoob/ee-jobscanner/actions/workflows/scan.yml)
 
-## How it works
+**Stop refreshing career pages.** Every hour this checks 5,000+ company job boards for new electrical engineering internships and co-ops, scores each one against *your* resume, and emails you the best matches.
+
+It's free, it runs on GitHub's servers, and nothing has to stay open on your computer.
+
+<img src="docs/alert.png" alt="An alert email listing three new internships, each with a fit score and an Apply button" width="520">
+
+<!-- Demo video goes here: record one hourly run and paste the link on this line. -->
+
+## Does this solve my problem?
+
+| If you're thinking... | Here's what it does |
+|---|---|
+| "I find out about roles a week late." | Scans every hour, so you can apply the day a role is posted. |
+| "Half the listings I click are dead." | Re-checks every posting right before emailing. Closed, filled, or older than 14 days gets dropped. |
+| "I can't tell which ones are worth my time." | Each role gets a fit score (Strong / Good / Stretch) and the skills it matched. |
+| "Job sites bury me in junk." | Only US internships and co-ops that are actually EE work. Max 3 per company, 30 per email. |
+
+**Not for you (yet) if** you aren't looking for EE internships. The filters are built for EE, so another major means editing the keywords in `jobscan.py`.
+
+## Set it up (about 10 minutes, no coding)
+
+You need a GitHub account and a Gmail account.
+
+1. **Copy the project.** Click **Fork** at the top of this page, then **Create fork**.
+2. **Add your resume.** 📄 This step is required for fit scores. Without it, every score is based on *my* resume, not yours.
+   In your fork, open `jobscan.py`, click the pencil, and find the list named `PROFILE`. Replace the skills with the ones on your resume, then click **Commit changes**. Each line looks like this:
+   ```python
+   ("PCB design", r"\bpcb|schematic|kicad|altium", 2),
+   #  label          words to look for          importance (1 to 3)
+   ```
+   List skills only. Your fork is public, so leave out your name, phone, and address.
+3. **Get a Gmail app password.** Turn on [2-Step Verification](https://myaccount.google.com/security), then go to [App passwords](https://myaccount.google.com/apppasswords), name it `jobscan`, and copy the 16-letter code (remove the spaces).
+4. **Add three secrets.** In your fork: **Settings → Secrets and variables → Actions → New repository secret**.
+
+   | Name | Value |
+   |---|---|
+   | `JOBSCAN_FROM` | the Gmail address that sends the alerts |
+   | `JOBSCAN_TO` | the address that gets the alerts |
+   | `JOBSCAN_PASS` | the 16-letter code from step 3 |
+5. **Turn it on.** Open the **Actions** tab, click the green button to enable workflows, then **scan → Run workflow**.
+
+That's it. Your first email arrives within about 20 minutes, and it keeps running every hour without you.
+
+## Common questions
+
+- **No email showed up.** Actions → scan → **Run workflow** to restart it. `last_run.txt` says what went wrong.
+- **A company is missing.** Add its careers link to `companies.txt`, one per line.
+- **I want a break.** Actions → scan → **⋯ → Disable workflow**. Turn it back on the same way.
+- **I want every open role on day one.** Delete `seen.json` in your fork. It remembers what has already been sent.
+- **I'd like to try it on my computer first.** `python3 jobscan.py dry` runs a full scan and prints the matches without emailing anything.
+
+## Can I use this code?
+
+Yes. Fork it, change it, make it yours. If it helps you land something, I'd love to hear about it.
+
+## Who made this?
+
+I'm **Hamzah Shaoob** ([@hshaoob](https://github.com/hshaoob)), an electrical engineering student. I built this because I was tired of checking the same career pages every morning and still missing roles. Now I get an email instead.
+
+## What I learned
+
+- **Every job site is different.** Workday, Greenhouse, Lever, Oracle and a dozen others each needed their own scanner, and they change without warning.
+- **"New to me" isn't "new."** Early on, months-old postings slipped through as "just posted." Now a role needs a real post date from the company or it isn't sent.
+- **Don't trust the schedule.** GitHub's hourly timer skipped most hours, so each run now starts the next one itself.
+- **Silence should mean broken.** Quiet hours still send a short "no new roles" email. If nothing arrives, I know something failed.
+- **Filter early.** Global companies buried US roles under foreign ones until I asked each site for US roles only.
+
+## Learn more
+
+- [Watch it run live](https://github.com/hshaoob/ee-jobscanner/actions/workflows/scan.yml): every hourly scan, with logs
+- [CHANGELOG.md](CHANGELOG.md): what changed and why
+- [Open an issue](https://github.com/hshaoob/ee-jobscanner/issues) for questions, bugs, or a company you want added
+
+<details>
+<summary>How it works under the hood</summary>
 
 ```mermaid
-flowchart TD
-    A["⏰ :00 — GitHub Actions starts scan.yml<br/>(cron at :05 is only a backup)"] --> B["python jobscan.py test<br/>self-check"]
-    B --> C["discover()<br/>build the list of boards to poll"]
-
-    C1["boards.json<br/>(boards found before)"] --> C
-    C2["companies.txt<br/>(always checked)"] --> C
-    C3["Simplify listings<br/>(new company boards)"] --> C
-    C3 -. "sites that can't be polled" .-> F1["roles taken straight from Simplify<br/>→ unscannable.txt"]
-
-    C --> D["scan every board in parallel<br/>Workday · Greenhouse · Lever · Ashby · Oracle · iCIMS ·<br/>SuccessFactors · Taleo · Eightfold · Phenom · Jibe ·<br/>Apple · Google · Amazon · Microsoft"]
-    D --> E["keep()<br/>US · intern/co-op · EE keywords"]
-    F1 --> E
-    E --> G{"already in<br/>seen.json?"}
-    G -- yes --> X["skip"]
-    G -- no --> H["new + queued roles<br/>(queue.json)"]
-
-    H --> I["details()<br/>re-check each posting: still open?<br/>post date · pay · description"]
-    I --> J["fit()<br/>score vs. my resume → Strong / Good / Stretch"]
-    J --> K["drop closed, undated, older than 14 days, or not EE work<br/>group Fresh / Recent · best fit, Seattle first, max 3 per company"]
-    K --> L["top 30 → HTML email with logos<br/>(logos.json, names.json)"]
-    L --> M["⏳ wait until :20, send via Gmail<br/>(no matches → 'no new roles' heartbeat)"]
-
-    M --> N["save state & commit to repo<br/>seen.json · queue.json (leftovers) · last_run.txt"]
-    N --> O["'next' job sleeps until the next :00<br/>and starts the next run"]
-    O --> A
+flowchart LR
+    A["⏰ Every hour"] --> B["Scan 5,000+ job boards"]
+    B --> C["Keep US EE internships<br/>and co-ops"]
+    C --> D["Drop anything already sent,<br/>closed, or over 14 days old"]
+    D --> E["Score against your resume"]
+    E --> F["📧 Email the top 30"]
+    F --> A
 ```
 
-## Set it up from scratch
+Supported sites: Workday, Greenhouse, Lever, Ashby, SmartRecruiters, Oracle, iCIMS, SuccessFactors, Taleo, Eightfold, Phenom, Jibe, plus Apple, Google, Amazon and Microsoft. Everything lives in one file, `jobscan.py`. Run `python3 jobscan.py test` for a quick self-check.
 
-You need a GitHub account, a Gmail account to send the alerts from, and a Mac or PC with `git` installed.
-
-### 1. Make a Gmail app password (for the sending account)
-Google won't let scripts sign in with a normal password.
-1. Sign in to the sending Gmail account and turn on **2-Step Verification**: myaccount.google.com/security
-2. Go to myaccount.google.com/apppasswords, name it `jobscan`, and click **Create**.
-3. Copy the 16-letter code. Remove the spaces. Keep it private and never paste it into chat or code.
-
-### 2. Create the GitHub repo
-1. Go to github.com/new, name it (e.g. `ee-jobscanner`), and choose **Public**.
-   Public is required for free: a full scan takes ~12 minutes each hour, which is more than private repos get for free.
-2. Create a token for uploading: github.com/settings/tokens/new?scopes=repo,workflow
-   Give it a note and an expiration, click **Generate token**, and copy it (it starts with `ghp_`).
-
-### 3. Upload the code
-In Terminal, from the project folder:
-```
-cd ~/ee-jobscan
-git remote add origin https://github.com/YOUR-USERNAME/ee-jobscanner.git
-git pull --rebase origin main        # only if you created the repo with a README
-git push -u origin main
-```
-When it asks, enter your GitHub username and paste the token as the password. Your Mac remembers it after that.
-
-### 4. Add the three secrets
-In the repo go to **Settings → Secrets and variables → Actions → New repository secret** and add:
-
-| Name | Value |
-|---|---|
-| `JOBSCAN_FROM` | the sending Gmail address |
-| `JOBSCAN_TO` | the address that receives the alerts |
-| `JOBSCAN_PASS` | the 16-letter app password from step 1, no spaces |
-
-They must be **Repository secrets**, not Environment secrets.
-
-### 5. Start it
-Go to **Actions → scan → Run workflow**. The first run sends its alert at the next :20 (or as soon as its ~12–15 minute scan finishes, if that's later). After that each run starts the next one at :00, so it keeps going by itself.
-
-## Day to day
-
-- **Pause or stop:** Actions → scan → **⋯ → Disable workflow**. Enable it again the same way.
-- **Restart it:** if a :20 alert doesn't arrive, Actions → scan → **Run workflow** once. If a scan is already running, the new one steps aside instead of doubling up.
-- **Add a company:** add its careers link to `companies.txt` (one per line, optional `# Company Name` after it), then commit.
-  To check a link first: `python3 jobscan.py try '<link>'`
-- **If a run fails:** GitHub emails you. `last_run.txt` shows the last run's result or the email error.
-  Nothing is lost: unsent roles go out on the next successful run.
-- **Editing on your computer:** run `git pull` first, because every run saves its progress to the repo.
-
-## Files
-
-| File | What it is |
-|---|---|
-| `jobscan.py` | the scanner, filters, fit scoring and email |
-| `CHANGELOG.md` | patch notes |
-| `companies.txt` | companies always checked, whether or not they're hiring |
-| `.github/workflows/scan.yml` | the hourly cycle (each run starts the next; a cron at :05 is only a backup) |
-| `seen.json`, `queue.json` | roles already sent / waiting for the next batch of 30 |
-| `boards.json`, `names.json`, `logos.json` | discovered company boards, display names, logo links |
-| `unscannable.txt` | companies whose sites can't be scanned (their roles come from Simplify) |
-| `last_run.txt` | time and result of the last run |
-
-## Handy commands (run on your computer)
-```
-python3 jobscan.py test                  # quick self-check
-python3 jobscan.py dry                   # full scan, print matches, no email
-python3 jobscan.py preview '<link>'      # build the alert for one company into last_email.html
-```
+</details>
