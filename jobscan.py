@@ -748,17 +748,16 @@ def wikidata_logo(company):
     return None
 
 
-def ago(p, now):
-    d = now - p
-    if d < datetime.timedelta(hours=1): return "Just posted"
-    if d < datetime.timedelta(days=1): return f"{d.seconds // 3600}h ago"
-    if d.days < 14: return f"{d.days}d ago"
-    return f"{d.days // 7} wks ago"
+def when(p):
+    """Exact time in PT, never "2h ago": an email read hours later must not still claim the role just dropped."""
+    if (p.hour, p.minute, p.second) == (0, 0, 0): return f"{p:%b %-d}"  # the site gave a date only, no time of day
+    return f"{p.astimezone(PACIFIC):%b %-d, %-I:%M %p}"
 
 
-def email(jobs, seen_at, priority_names, send=True):
+def email(jobs, seen_at, priority_names, send=True, found={}):
     """Alert email (best 30). Each card reads in a Z (Gutenberg): logo+role -> age, company/place/pay -> Apply.
     Only roles with a real post date within MAX_AGE days, still open, and EE work are sent.
+    found: url -> ISO time the scanner first saw the role, for roles that waited in the queue (default: this scan).
     Returns the URLs handled (sent, or skipped on purpose); anything else carries over to the next batch."""
     esc = html.escape
     looked = sorted(jobs, key=lambda j: (tier(j[3]), j[1] not in priority_names))[:300]  # ponytail: 300 lookups/hour; the rest wait
@@ -822,7 +821,8 @@ def email(jobs, seen_at, priority_names, send=True):
         if loc[:1].islower(): loc = re.sub(r"\b[a-z]", lambda m: m[0].upper(), loc)
         loc = loc if len(loc) < 60 else loc[:57] + "…"
         dot = EMERALD if a is not None and a <= 3 else AMBER if a is None or a <= 14 else FAINT
-        age = ago(p, seen_at) if p else "Date not listed"
+        age = f"Posted {when(p)}" if p else "Date not listed"
+        found_at = when(datetime.datetime.fromisoformat(found[u]) if u in found else seen_at)
         age_style = f"font:700 12px/1.6 {FONT};color:{EMERALD}" if a is not None and a <= 3 else f"font:500 12px/1.6 {FONT};color:{MUTED}"
         # highlight the EE terms that made this role match (RF, PCB, power systems, FPGA, ...)
         title = "".join(f'<span style="background:#f5ecd2;padding:0 3px;border-radius:3px">{esc(x)}</span>' if i % 2 else esc(x)
@@ -850,8 +850,9 @@ def email(jobs, seen_at, priority_names, send=True):
    <div style="font:13px/1.5 {FONT};padding-top:5px"><b style="color:{fit_color}">{fit_label} &middot; {score}%</b>
      <span style="color:{MUTED}">{esc(", ".join(matched)) if matched else "Few resume matches"}</span></div>
    <div style="font:11px/1.6 Menlo,Consolas,monospace;color:{FAINT};padding-top:2px">{esc(idline)}</div></td>
- <td width="130" valign="top" align="right" style="padding-left:12px">
+ <td width="150" valign="top" align="right" style="padding-left:12px">
    <div style="{age_style};white-space:nowrap"><span style="color:{dot}">&#9679;</span>&nbsp;{esc(age)}</div>
+   <div style="font:12px/1.6 {FONT};color:{MUTED};white-space:nowrap">Found {esc(found_at)}</div>
    {f'<div style="padding-top:4px"><span style="display:inline-block;background:#d9e8f3;color:{INDIGO};font:800 14px/1 {FONT};padding:5px 9px;border-radius:6px;white-space:nowrap">{esc(pay)}</span></div>' if pay else ""}
    <a href="{esc(u)}" style="display:inline-block;margin-top:10px;background:{EMERALD};color:#ffffff;font:600 13px/1 {FONT};
       text-decoration:none;padding:10px 18px;border-radius:8px;white-space:nowrap">Apply</a></td></tr></table></td></tr>"""
@@ -875,6 +876,7 @@ def email(jobs, seen_at, priority_names, send=True):
   <div style="font:13px/1.5 {FONT};color:#aab0d4">{seen_at.astimezone(PACIFIC):%A, %B %-d · %-I:%M %p} PT</div></td></tr>
 <tr><td style="padding:4px 32px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{sections}</table></td></tr>
 <tr><td style="padding:20px 32px 30px;border-top:1px solid {LINE};font:12px/1.6 {FONT};color:{FAINT}">
+  Times are Pacific. Posted is the company's own date; Found is when this scanner first saw the role.
   Every role was live on the company's site when this was sent. Search the ID on their careers page to confirm it.
   {f"{hidden} roles were left out: posted over {MAX_AGE} days ago, no post date, closed, or not EE work." if hidden > 0 else ""}
   {f"{dropped_same_co} more roles at companies already listed were left out, to keep it to your best 3 per company." if dropped_same_co else ""}
@@ -924,7 +926,7 @@ def main(dry=False):
     now = datetime.datetime.now(datetime.timezone.utc)
     print(f"{len(boards)} boards, {len(jobs)} matches, {len(new)} new or queued", flush=True)
     # send first (even with nothing new, as the hourly heartbeat): a failed send leaves everything queued for the next run
-    try: handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority})
+    try: handled = email(new, now, {names.get("|".join(b)) for b in boards if low(b) in priority}, found=queue)
     except Exception as e:  # record why (never the password itself) so a failed send is diagnosable from the repo
         got = f"FROM={'set' if FROM else 'MISSING'} TO={'set' if TO else 'MISSING'} PASS={len(os.environ.get('JOBSCAN_PASS', ''))} chars"
         (HERE / "last_run.txt").write_text(f"{now:%Y-%m-%dT%H:%M}Z EMAIL FAILED: {type(e).__name__}: {str(e)[:300]} | {got}\n")
@@ -980,8 +982,7 @@ if __name__ == "__main__":
         assert job_id("https://textron.taleo.net/careersection/textron/jobdetail.ftl?job=342717") == "342717"
         assert source("https://careers-gdms.icims.com/jobs/75140/x/job") == "iCIMS" and source("https://careers.amd.com/jobs/1") == "careers.amd.com"
         n = datetime.datetime(2026, 9, 30, 12, tzinfo=datetime.timezone.utc)
-        assert ago(n - datetime.timedelta(minutes=20), n) == "Just posted" and ago(n - datetime.timedelta(hours=5), n) == "5h ago"
-        assert ago(n - datetime.timedelta(days=40), n) == "5 wks ago"
+        assert when(n.replace(hour=22, minute=20)) == "Sep 30, 3:20 PM" and when(n.replace(hour=0)) == "Sep 30"  # PT; date-only stays a date
         assert re.sub(r"(\d[\d,.]*) ?USD", r"$\1", "42,000 USD - 88,000 USD").replace(" - ", " – ") == "$42,000 – $88,000"
         assert logo("Texas Instruments", "https://edbz.fa.us2.oraclecloud.com/x", {})
         assert "lockheedmartin.com" in logo("Lockheed Martin", "https://lockheedmartin.eightfold.ai/careers/job/1", {})
