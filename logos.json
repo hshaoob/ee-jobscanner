@@ -200,6 +200,11 @@
 "w": 250
 },
 "HPE": "https://www.google.com/s2/favicons?domain=hpe.com&sz=128",
+"Haleon": {
+"h": 39,
+"u": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3e/Haleon.svg/250px-Haleon.svg.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail",
+"w": 250
+},
 "Halliburton": "https://www.google.com/s2/favicons?domain=halliburton.com&sz=128",
 "Harbinger Motors": "https://www.google.com/s2/favicons?domain=harbingermotors.com&sz=128",
 "Heidelberg Materials": "https://www.google.com/s2/favicons?domain=heidelbergmaterials.com&sz=128",
@@ -452,6 +457,7 @@
 "Wabtec": "https://www.google.com/s2/favicons?domain=wabtecuniversity.com&sz=128",
 "Waters": "https://www.google.com/s2/favicons?domain=waters.com&sz=128",
 "Watts Water": "",
+"Wawa": "https://avatars.githubusercontent.com/u/49483307?v=4&s=128",
 "Waymo": "https://www.google.com/s2/favicons?domain=waymo.com&sz=128",
 "Western Aircraft": "https://www.google.com/s2/favicons?domain=westair.com&sz=128",
 "Western Digital": "https://www.google.com/s2/favicons?domain=westerndigital.com&sz=128",
