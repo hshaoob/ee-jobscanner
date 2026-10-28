@@ -49,6 +49,7 @@
 "Astranis": "https://www.google.com/s2/favicons?domain=astranis.com&sz=128",
 "AtkinsR\u00e9alis": "https://www.atkinsrealis.com/~/media/97AE1F5BEBDB421A97CD6C2DD769FEFF.png",
 "Atoms": "https://www.google.com/s2/favicons?domain=atoms.com&sz=128",
+"Austal USA": "https://www.google.com/s2/favicons?domain=austalusa.com&sz=128",
 "Avery Dennison": "https://www.google.com/s2/favicons?domain=averydennison.com&sz=128",
 "Axiom Space": "https://www.google.com/s2/favicons?domain=axiomspace.com&sz=128",
 "BAE Systems": "https://www.google.com/s2/favicons?domain=baesystems.com&sz=128",
@@ -112,6 +113,7 @@
 "CoStar Group": "https://avatars.githubusercontent.com/u/7682820?v=4&s=128",
 "Commercial Metals": "https://www.google.com/s2/favicons?domain=commercialmetals.co.nz&sz=128",
 "Commonwealth Fusion Systems": "https://www.google.com/s2/favicons?domain=cfs.energy&sz=128",
+"Consolidated Edison": "https://www.coned.com/apple-touch-icon.png",
 "Constellation Energy Generation, LLC.": "https://www.constellationenergy.com/content/dam/constellation/logos/constellation-icon.png",
 "Continental": "https://avatars.githubusercontent.com/u/39407307?v=4&s=128",
 "Continental Resources": "https://www.google.com/s2/favicons?domain=clr.com&sz=128",
@@ -265,6 +267,11 @@
 "Intelliguard": "https://www.google.com/s2/favicons?domain=ig.solutions&sz=128",
 "International Motors": "https://www.international.com/-/media/project/tratongroup/international/international/icons/international_favicon_black.png?rev=30f7400d993642be8b2d5109af783323",
 "International Rescue Committee (IRC)": "https://www.google.com/s2/favicons?domain=rescue.org&sz=128",
+"Intuitive": {
+"h": 100,
+"u": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/01/Intuitive_Surgical_logo.svg/250px-Intuitive_Surgical_logo.svg.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail",
+"w": 250
+},
 "Invenergy": "https://www.google.com/s2/favicons?domain=invenergy.com&sz=128",
 "Inversion": "https://www.google.com/s2/favicons?domain=inversionspace.com&sz=128",
 "Itron": "https://www.google.com/s2/favicons?domain=itron.com&sz=128",
